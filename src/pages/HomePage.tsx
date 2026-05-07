@@ -20,7 +20,7 @@ export function HomePage() {
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Button>OCTAVIO Y MI GLOVO</Button>
-            <Button variant="secondary">Ver estructura</Button>
+            <Button variant="secondary">PIQUE VOLEM LA SISENA</Button>
           </div>
         </div>
 
