@@ -19,7 +19,7 @@ export function HomePage() {
             estructura pensada para crecer sin rehacer la organización.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Button>Crear primera funcionalidad</Button>
+            <Button>OCTAVIO Y MI GLOVO</Button>
             <Button variant="secondary">Ver estructura</Button>
           </div>
         </div>
