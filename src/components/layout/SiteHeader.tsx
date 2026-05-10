@@ -12,14 +12,7 @@ type SiteHeaderProps = {
 export function SiteHeader({ activeView, onNavigate }: SiteHeaderProps) {
   return (
     <header className="border-b border-[#f0e4d8] bg-[#fdf4ec]">
-      <div
-        className={cn(
-          'mx-auto flex h-12 w-full items-center justify-between gap-3 min-[1100px]:h-[70px]',
-          activeView === 'ruta'
-            ? 'max-w-[1168px] px-2 sm:px-3 min-[1100px]:gap-6 min-[1100px]:px-3'
-            : 'max-w-[924px] px-5 sm:px-6 lg:px-0 min-[1100px]:max-w-[1104px] min-[1100px]:gap-6',
-        )}
-      >
+      <div className="mx-auto flex h-12 w-full max-w-[924px] items-center justify-between gap-3 px-5 sm:px-6 lg:px-0 min-[1100px]:h-[70px] min-[1100px]:max-w-[1104px] min-[1100px]:gap-6">
         <button
           aria-label={siteConfig.name}
           className="flex items-center gap-[9px] text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c53030] focus-visible:ring-offset-2 focus-visible:ring-offset-[#fdf4ec]"
@@ -49,7 +42,7 @@ export function SiteHeader({ activeView, onNavigate }: SiteHeaderProps) {
             >
               <span className="flex h-full items-center">{item.label}</span>
               {activeView === item.view ? (
-                <span className="absolute bottom-[-1px] left-1/2 h-[2px] w-[49px] -translate-x-1/2 bg-[#c53030] min-[1100px]:w-[58px]" />
+                <span className="absolute bottom-[-1px] left-1/2 h-[2px] w-[calc(100%+14px)] -translate-x-1/2 bg-[#c53030] min-[1100px]:w-[calc(100%+18px)]" />
               ) : null}
             </button>
           ))}

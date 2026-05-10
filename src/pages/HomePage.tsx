@@ -159,7 +159,7 @@ export function HomePage({ activeView, onNavigate }: HomePageProps) {
           onNavigate={onNavigate}
           onSelectTruck={setSelectedTruckId}
           plan={plan}
-          selectedTruckId={effectiveSelectedTruckId}
+          selectedTruckId={selectedTruckId}
         />
       ) : null}
       {activeView === 'ruta' ? (
@@ -433,16 +433,16 @@ function OrganizationView({
   plan: DistributionPlan | null
   selectedTruckId: string
 }) {
-  const [showAllRoutes, setShowAllRoutes] = useState(true)
+  const selectedTruck = plan?.trucks.find((truck) => truck.id === selectedTruckId)
+  const selectedRouteId = selectedTruck?.id ?? ''
+  function handleSelectTruck(truckId: string) {
+    onSelectTruck(truckId === selectedRouteId ? '' : truckId)
+  }
 
   if (!plan) {
     return <EmptyState title="Sin planificación" body="Selecciona una fecha y al menos un transporte en Pedidos." />
   }
 
-  const selectedTruck =
-    plan.trucks.find((truck) => truck.id === selectedTruckId) ??
-    plan.assignedTrucks[0] ??
-    plan.trucks[0]
   const allRoutesMapKey = `${plan.date}-${plan.assignedTrucks
     .map((truck) => `${truck.id}:${truck.clients.length}`)
     .join('|')}`
@@ -482,12 +482,12 @@ function OrganizationView({
           <button
             className={cn(
               'rounded-[18px] p-5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c53030] focus-visible:ring-offset-2 focus-visible:ring-offset-[#fdf4ec]',
-              truck.id === selectedTruck?.id
+              truck.id === selectedRouteId
                 ? 'bg-[#f6e5d4] ring-2 ring-[#c53030]/20'
                 : 'bg-[#fdf9f6] hover:bg-[#f6e5d4]/65',
             )}
             key={truck.id}
-            onClick={() => onSelectTruck(truck.id)}
+            onClick={() => handleSelectTruck(truck.id)}
             type="button"
           >
             <div className="flex items-start justify-between gap-3">
@@ -545,19 +545,15 @@ function OrganizationView({
           <div>
             <h2 className="text-base font-bold text-[#47392b]">Mapa global de rutas</h2>
             <p className="mt-1 text-sm font-medium text-[#806a54]">
-              Cada color representa un transporte asignado. Los puntos se mantienen visibles al ocultar rutas.
+              Selecciona una ruta para aislar su trazo y ver sus paradas numeradas.
             </p>
           </div>
-          <Button onClick={() => setShowAllRoutes((current) => !current)}>
-            {showAllRoutes ? 'Ocultar rutas' : 'Mostrar rutas'}
-          </Button>
         </div>
         <OrganizationRoutesMap
           depot={planningDataset.depot}
-          onSelectTruck={onSelectTruck}
+          onSelectTruck={handleSelectTruck}
           routeKey={allRoutesMapKey}
-          selectedTruckId={selectedTruck?.id ?? ''}
-          showRoutes={showAllRoutes}
+          selectedTruckId={selectedRouteId}
           trucks={plan.assignedTrucks}
         />
       </section>
@@ -807,9 +803,9 @@ function RouteOrdersList({
                 </small>
               </span>
               {expanded ? (
-                <ChevronUp aria-hidden="true" className="route-order-chevron" strokeWidth={2.2} />
+                <ChevronUp aria-hidden="true" className="route-order-chevron" strokeWidth={3.2} />
               ) : (
-                <ChevronDown aria-hidden="true" className="route-order-chevron" strokeWidth={2.2} />
+                <ChevronDown aria-hidden="true" className="route-order-chevron" strokeWidth={3.2} />
               )}
             </button>
             {expanded ? (
@@ -836,14 +832,18 @@ function RouteOrderExpanded({
   return (
     <div className="route-order-expanded-content">
       <div className="route-order-expanded-meta">
-        <span>ZONA DE CARGA: Z{client.loadZone}</span>
-        <span>DESCARGA: {formatMinutes(client.serviceMinutes)}</span>
+        <span>
+          ZONA DE CARGA: <strong>Z{client.loadZone}</strong>
+        </span>
+        <span>
+          DESCARGA: <strong>{formatMinutes(client.serviceMinutes)}</strong>
+        </span>
       </div>
       <div className="route-order-products">
         {columns.map((column, index) => (
           <ul key={index}>
             {column.map((row) => (
-              <li key={row.lineId}>
+              <li className={cn(row.returnable && 'route-order-product-returnable')} key={row.lineId}>
                 <strong>{decimalFormatter.format(row.quantity)} uds de [{trimProductName(row.product)}]</strong>
                 <span>PALET X</span>
               </li>
@@ -1008,14 +1008,12 @@ function OrganizationRoutesMap({
   onSelectTruck,
   routeKey,
   selectedTruckId,
-  showRoutes,
   trucks,
 }: {
   depot: { name: string; lat: number; lng: number }
   onSelectTruck: (truckId: string) => void
   routeKey: string
   selectedTruckId: string
-  showRoutes: boolean
   trucks: readonly PlannedTruck[]
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -1031,7 +1029,7 @@ function OrganizationRoutesMap({
     polylines: Record<string, readonly PolylinePoint[]>
   }>({ key: '', polylines: EMPTY_ROAD_POLYLINES })
   const roadPolylineByTruck =
-    showRoutes && roadPolylineState.key === roadPolylineBatchKey
+    roadPolylineState.key === roadPolylineBatchKey
       ? roadPolylineState.polylines
       : EMPTY_ROAD_POLYLINES
 
@@ -1041,12 +1039,6 @@ function OrganizationRoutesMap({
 
   useEffect(() => {
     let cancelled = false
-
-    if (!showRoutes) {
-      return () => {
-        cancelled = true
-      }
-    }
 
     void Promise.all(
       trucks.map(async (truck) => {
@@ -1065,7 +1057,7 @@ function OrganizationRoutesMap({
     return () => {
       cancelled = true
     }
-  }, [roadPolylineBatchKey, showRoutes, trucks])
+  }, [roadPolylineBatchKey, trucks])
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -1117,10 +1109,11 @@ function OrganizationRoutesMap({
     for (const [truckIndex, truck] of trucks.entries()) {
       const color = truckRouteColors[truckIndex % truckRouteColors.length]
       const isSelected = truck.id === selectedTruckId
+      const hasSelectedRoute = selectedTruckId.length > 0
       const routePolyline = roadPolylineByTruck[truck.id] ?? truck.optimizedPolyline
       const line = routePolyline.map((point) => [point.lat, point.lng] as [number, number])
 
-      if (showRoutes && line.length > 1) {
+      if ((!hasSelectedRoute || isSelected) && line.length > 1) {
         L.polyline(line, {
           color,
           opacity: isSelected ? 0.95 : 0.62,
@@ -1129,12 +1122,26 @@ function OrganizationRoutesMap({
       }
 
       for (const client of truck.clients) {
+        if (isSelected) {
+          const marker = L.marker([client.lat, client.lng], {
+            icon: createRouteSequenceIcon(client.optimizedSequence, color, false),
+            title: `${client.optimizedSequence}. ${client.name}`,
+            zIndexOffset: 500,
+          }).addTo(layer)
+
+          marker.bindTooltip(`${truck.label} · ${client.optimizedSequence}. ${client.name}`, {
+            direction: 'top',
+          })
+          marker.on('click', () => onSelectTruck(truck.id))
+          continue
+        }
+
         const marker = L.circleMarker([client.lat, client.lng], {
           color,
-          fillColor: isSelected ? color : '#FFFBF7',
-          fillOpacity: isSelected ? 0.9 : 0.82,
-          radius: isSelected ? 6 : 4.5,
-          weight: isSelected ? 2.5 : 1.8,
+          fillColor: '#FFFBF7',
+          fillOpacity: 0.82,
+          radius: 4.5,
+          weight: 1.8,
         }).addTo(layer)
 
         marker.bindTooltip(`${truck.label} · ${client.optimizedSequence}. ${client.name}`, {
@@ -1165,7 +1172,6 @@ function OrganizationRoutesMap({
     onSelectTruck,
     roadPolylineByTruck,
     selectedTruckId,
-    showRoutes,
     trucks,
   ])
 
@@ -1174,7 +1180,7 @@ function OrganizationRoutesMap({
       <div className="relative h-[480px] bg-[#f6e5d4]">
         <div className="h-full w-full" ref={containerRef} />
         <div className="pointer-events-none absolute left-3 top-3 rounded-[13px] bg-[#fdf9f6]/95 px-3 py-2 text-xs font-bold text-[#47392b]">
-          {showRoutes ? 'Rutas visibles' : 'Solo puntos'}
+          {selectedTruckId ? 'Ruta seleccionada' : 'Todas las rutas'}
         </div>
       </div>
       <div className="grid gap-2 bg-[#f6e5d4] px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -1343,17 +1349,14 @@ function RouteMap({
 
     for (const client of clients) {
       const selected = client.clientId === selectedClientId
-      const marker = L.circleMarker([client.lat, client.lng], {
-        color: '#D0312D',
-        fillColor: selected ? '#D0312D' : '#FDF4EC',
-        fillOpacity: selected ? 0.92 : 0.96,
-        radius: selected ? 9 : 6,
-        weight: selected ? 2 : 2.5,
+      const marker = L.marker([client.lat, client.lng], {
+        icon: createRouteSequenceIcon(client.optimizedSequence, '#D0312D', selected),
+        title: `${client.optimizedSequence}. ${client.name}`,
+        zIndexOffset: selected ? 500 : 0,
       }).addTo(layer)
 
       marker.bindTooltip(`${client.optimizedSequence}. ${client.name}`, {
         direction: 'top',
-        offset: [0, -4],
       })
       marker.on('click', () => onSelectClient(client.clientId))
     }
@@ -1393,6 +1396,22 @@ function RouteMap({
 
 function polylineSignature(polyline: readonly PolylinePoint[]) {
   return polyline.map((point) => `${point.lng.toFixed(6)},${point.lat.toFixed(6)}`).join(';')
+}
+
+function createRouteSequenceIcon(sequence: number, color: string, selected: boolean) {
+  const label = String(sequence)
+  const height = selected ? 30 : 24
+  const width = Math.max(height, label.length * (selected ? 13 : 11) + 14)
+
+  return L.divIcon({
+    className: 'route-sequence-marker',
+    html: `<span class="route-sequence-marker-badge${
+      selected ? ' route-sequence-marker-badge-selected' : ''
+    }" style="--route-marker-color:${color}">${label}</span>`,
+    iconAnchor: [width / 2, height / 2],
+    iconSize: [width, height],
+    tooltipAnchor: [0, -height / 2],
+  })
 }
 
 function EmptyState({ title, body }: { title: string; body: string }) {

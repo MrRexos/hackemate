@@ -70,6 +70,40 @@ a {
   background: #FFFBF7;
 }
 
+.route-sequence-marker {
+  background: transparent;
+  border: 0;
+}
+
+.route-sequence-marker-badge {
+  align-items: center;
+  background: #fffaf6;
+  border: 2px solid var(--route-marker-color);
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(26, 26, 26, 0.18);
+  box-sizing: border-box;
+  color: var(--route-marker-color);
+  display: flex;
+  font-size: 11px;
+  font-weight: 800;
+  height: 100%;
+  justify-content: center;
+  letter-spacing: 0;
+  line-height: 1;
+  min-width: 100%;
+  padding: 0 5px;
+}
+
+.route-sequence-marker-badge-selected {
+  background: var(--route-marker-color);
+  border-color: #fffaf6;
+  box-shadow:
+    0 0 0 2px var(--route-marker-color),
+    0 3px 10px rgba(26, 26, 26, 0.22);
+  color: #ffffff;
+  font-size: 12px;
+}
+
 .route-screen {
   color: #4a3b30;
 }
@@ -251,13 +285,16 @@ a {
 }
 
 .route-start-button {
+  align-items: center;
   background: #c8312f;
   border: 0;
   border-radius: 999px;
   color: #ffffff;
-  font-size: 11px;
+  display: inline-flex;
+  font-size: 14px;
   font-weight: 800;
-  height: 31px;
+  height: 40px;
+  justify-content: center;
   padding: 0 20px;
 }
 
@@ -290,12 +327,17 @@ a {
   margin-top: 96px;
 }
 
+.route-deliveries-section .route-section-title,
+.route-extras-section .route-section-title {
+  font-size: 27px;
+}
+
 .route-orders-card {
   background: #fffaf6;
   border-radius: 20px;
-  margin: 49px auto 0;
-  max-width: 100%;
-  overflow: visible;
+  margin: 58px auto 0;
+  max-width: 952px;
+  overflow: hidden;
 }
 
 .route-order-row {
@@ -308,7 +350,7 @@ a {
 }
 
 .route-order-row-selected {
-  background: #f6e5d4;
+  background: #f8f3ee;
 }
 
 .route-order-row-selected .route-order-summary {
@@ -320,12 +362,12 @@ a {
   background: transparent;
   border: 0;
   color: #4a3b30;
-  column-gap: 16px;
+  column-gap: 18px;
   display: grid;
   font: inherit;
-  grid-template-columns: 36px minmax(140px, 1fr) 82px 86px 94px 108px 20px;
-  min-height: 96px;
-  padding: 26px 39px 22px 27px;
+  grid-template-columns: 42px minmax(246px, 1fr) 103px 104px 128px 136px 18px;
+  min-height: 116px;
+  padding: 31px 36px 27px 30px;
   text-align: left;
   width: 100%;
 }
@@ -344,7 +386,7 @@ a {
 
 .route-order-number {
   color: #4a3b30;
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 800;
   line-height: 1;
 }
@@ -352,10 +394,10 @@ a {
 .route-order-site strong {
   color: #4a3b30;
   display: block;
-  font-size: 14px;
+  font-size: 18px;
   font-weight: 800;
   line-height: 1.1;
-  max-width: 180px;
+  max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -368,18 +410,24 @@ a {
 .route-order-weight small {
   color: #b1a294;
   display: block;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1.28;
   margin-top: 8px;
 }
 
+.route-order-weight small {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
 .route-order-pedidos,
 .route-order-weight,
 .route-order-time strong {
   color: #7d6b59;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   line-height: 1.2;
   text-transform: uppercase;
@@ -389,12 +437,18 @@ a {
   text-transform: none;
 }
 
+.route-order-priority,
+.route-order-time {
+  justify-self: center;
+  text-align: center;
+}
+
 .route-order-priority strong {
   background: #f4e3d1;
   border-radius: 999px;
   color: #9a826e;
   display: inline-flex;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   justify-content: center;
   line-height: 1;
@@ -405,30 +459,38 @@ a {
 .route-order-time strong {
   color: #4a3b30;
   display: block;
-  font-size: 14px;
+  font-size: 18px;
 }
 
 .route-order-chevron {
   color: #cf2f2e;
-  height: 15px;
-  margin-top: 4px;
-  width: 15px;
+  height: 20px;
+  margin-top: 1px;
+  width: 20px;
 }
 
 .route-order-expanded-content {
-  padding: 0 62px 37px 164px;
+  padding: 2px 62px 20px 164px;
 }
 
 .route-order-expanded-meta {
   color: #b1a294;
   display: flex;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
-  gap: 70px;
+  gap: 92px;
+  justify-content: center;
   letter-spacing: 0;
   line-height: 1;
   margin-bottom: 22px;
+  margin-left: -102px;
   text-transform: uppercase;
+  width: calc(100% + 102px);
+}
+
+.route-order-expanded-meta strong {
+  color: #4a3b30;
+  font-weight: 800;
 }
 
 .route-order-products {
@@ -439,7 +501,7 @@ a {
 
 .route-order-products ul {
   color: #4a3b30;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
   line-height: 1.28;
   list-style: disc;
@@ -449,10 +511,19 @@ a {
 
 .route-order-products li span {
   color: #b1a294;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
   margin-left: 8px;
   text-transform: uppercase;
+}
+
+.route-order-products li span::before {
+  content: '\00b7';
+  margin-right: 8px;
+}
+
+.route-order-product-returnable strong {
+  color: #66814f;
 }
 
 .route-truck-section {
@@ -470,11 +541,11 @@ a {
 
 .route-truck-topdown {
   margin: 42px auto 0;
-  max-width: 742px;
+  max-width: 995px;
 }
 
 .route-truck-topdown-3d {
-  max-width: 724px;
+  max-width: 970px;
 }
 
 .route-truck-topdown-stage {
@@ -482,30 +553,32 @@ a {
   display: flex;
   gap: 0;
   justify-content: center;
+  transform: translateX(var(--route-truck-center-offset, 0));
 }
 
 .route-truck-nose-image {
   filter: brightness(0) opacity(0.66);
   flex: 0 0 auto;
-  height: 194px;
-  margin-right: -11px;
+  height: 260px;
+  margin-right: -15px;
   object-fit: contain;
-  width: 118px;
+  width: 158px;
 }
 
 .route-truck-nose-image-van {
-  height: 213px;
-  margin-right: 7px;
-  width: 130px;
+  height: 286px;
+  margin-right: 9px;
+  width: 174px;
 }
 
 .route-truck-topdown-canvas {
   background: #fdf4ec;
-  flex: 1 1 616px;
-  height: 164px;
+  flex: 0 0 var(--route-truck-canvas-width, 825px);
+  height: 220px;
   min-width: 0;
   overflow: hidden;
   position: relative;
+  width: var(--route-truck-canvas-width, 825px);
 }
 
 .route-material-legend,
@@ -540,10 +613,10 @@ a {
 .route-pallet-detail-grid {
   align-items: start;
   display: grid;
-  gap: 88px;
-  grid-template-columns: minmax(0, 480px) 350px;
-  margin: 76px auto 0;
-  max-width: 918px;
+  gap: 95px;
+  grid-template-columns: minmax(0, 518px) 378px;
+  margin: 82px auto 0;
+  max-width: 991px;
 }
 
 .route-pallet-info-card {
@@ -552,8 +625,8 @@ a {
 }
 
 .route-pallet-info-card {
-  min-height: 294px;
-  padding: 37px 38px 36px;
+  min-height: 318px;
+  padding: 40px 41px 39px;
 }
 
 .route-pallet-info-title {
@@ -564,7 +637,7 @@ a {
 
 .route-pallet-info-title h3 {
   color: #4a3b30;
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 800;
   letter-spacing: 0;
   line-height: 1.1;
@@ -573,29 +646,29 @@ a {
 
 .route-pallet-info-title p {
   color: #c0b0a2;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 800;
-  margin: 19px 0 0;
+  margin: 21px 0 0;
 }
 
 .route-pallet-info-title span {
   background: #f7e8d8;
   border-radius: 999px;
   color: #c0a993;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 800;
-  padding: 8px 14px;
+  padding: 9px 15px;
 }
 
 .route-pallet-client-list {
   display: grid;
-  gap: 3px;
-  margin-top: 35px;
+  gap: 4px;
+  margin-top: 38px;
 }
 
 .route-pallet-client-list strong {
   color: #4a3b30;
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 800;
   letter-spacing: 0;
   line-height: 1.25;
@@ -603,24 +676,24 @@ a {
 
 .route-pallet-metrics {
   display: grid;
-  gap: 13px;
+  gap: 14px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-top: 28px;
+  margin-top: 30px;
 }
 
 .route-pallet-metrics > div {
-  border-radius: 10px;
-  min-height: 52px;
-  padding: 10px 13px;
+  border-radius: 11px;
+  min-height: 56px;
+  padding: 11px 14px;
 }
 
 .route-pallet-metrics p {
-  font-size: 8px;
+  font-size: 9px;
   letter-spacing: 0;
 }
 
 .route-pallet-metrics p + p {
-  font-size: 15px;
+  font-size: 16px;
 }
 
 .route-pallet-visual-card {
@@ -629,38 +702,41 @@ a {
 
 .route-pallet-visual-scene {
   background: #fffaf6;
-  border-radius: 24px;
-  height: 254px;
+  border-radius: 26px;
+  height: 274px;
   overflow: hidden;
   position: relative;
 }
 
 .route-pallet-material-legend {
-  gap: 24px;
-  margin-top: 26px;
+  gap: 26px;
+  margin-top: 28px;
 }
 
 .route-pallet-material-legend span {
   align-items: flex-start;
   display: grid;
-  gap: 4px 7px;
-  grid-template-columns: 10px auto;
+  font-size: 12px;
+  gap: 5px 8px;
+  grid-template-columns: 11px auto;
 }
 
 .route-pallet-material-legend i {
+  height: 11px;
   margin-top: 1px;
+  width: 11px;
 }
 
 .route-pallet-material-legend strong {
   color: #8b7a6a;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   line-height: 1;
 }
 
 .route-pallet-material-legend small {
   color: #b4a597;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   grid-column: 2;
   line-height: 1;
@@ -675,9 +751,9 @@ a {
   align-items: start;
   display: grid;
   gap: 38px;
-  grid-template-columns: minmax(0, 1fr) 370px;
+  grid-template-columns: minmax(0, 1fr) 410px;
   margin: 51px auto 0;
-  max-width: 914px;
+  max-width: 960px;
 }
 
 .route-products-card,
@@ -687,14 +763,14 @@ a {
 }
 
 .route-products-card {
-  min-height: 300px;
+  min-height: 334px;
   padding: 28px 28px 26px;
 }
 
 .route-products-card h3,
 .route-score-panel h3 {
   color: #4a3b30;
-  font-size: 13px;
+  font-size: 17px;
   font-weight: 800;
   letter-spacing: 0;
   line-height: 1;
@@ -719,7 +795,7 @@ a {
 .route-products-card strong {
   color: #5a4a3e;
   display: block;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 800;
   line-height: 1.15;
   overflow: hidden;
@@ -731,7 +807,7 @@ a {
 .route-products-card small {
   color: #c0b0a2;
   display: block;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 800;
   line-height: 1.1;
   margin-top: 7px;
@@ -739,7 +815,7 @@ a {
 
 .route-products-card em {
   color: #9a8978;
-  font-size: 12px;
+  font-size: 15px;
   font-style: normal;
   font-weight: 800;
   line-height: 1.15;
@@ -747,8 +823,8 @@ a {
 }
 
 .route-score-panel {
-  min-height: 300px;
-  padding: 28px 18px 22px;
+  min-height: 334px;
+  padding: 28px 20px 22px;
 }
 
 .route-score-panel > div {
@@ -760,12 +836,16 @@ a {
   border-bottom: 1px solid #eee3da;
   color: #9a8978;
   display: flex;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 800;
   gap: 20px;
   justify-content: space-between;
   line-height: 1;
-  min-height: 34px;
+  min-height: 44px;
+}
+
+.route-score-line span {
+  min-width: 0;
 }
 
 .route-score-line:last-child {
@@ -774,7 +854,7 @@ a {
 
 .route-score-line strong {
   color: #57483c;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 800;
   line-height: 1;
   text-align: right;
@@ -799,6 +879,7 @@ a {
   .route-truck-topdown-stage {
     align-items: stretch;
     flex-direction: column;
+    transform: none;
   }
 
   .route-comparison-card {
@@ -806,9 +887,15 @@ a {
   }
 
   .route-truck-nose-image {
-    height: 140px;
+    height: 188px;
     margin: 0 auto;
-    width: 84px;
+    width: 113px;
+  }
+
+  .route-truck-nose-image-van {
+    height: 207px;
+    margin: 0 auto;
+    width: 126px;
   }
 
   .route-truck-topdown-canvas {
@@ -822,7 +909,12 @@ a {
   }
 
   .route-order-summary {
-    min-width: 760px;
+    min-width: 900px;
+  }
+
+  .route-order-expanded-content {
+    box-sizing: border-box;
+    min-width: 900px;
   }
 
   .route-orders-card {

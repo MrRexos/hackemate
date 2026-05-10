@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { LoadPiece, TruckLoadPlan, TruckPallet } from '@/utils/loadPlanner'
@@ -20,6 +20,11 @@ type VisualUnit = LoadPiece & {
 
 const numberFormatter = new Intl.NumberFormat('es-ES')
 const decimalFormatter = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 })
+const TOP_DOWN_SLOT_PITCH = 1.54
+const TOP_DOWN_LANE_PITCH = 0.94
+const TOP_DOWN_LENGTH_PADDING = 1.32
+const TOP_DOWN_WIDTH_PADDING = 0.72
+const TOP_DOWN_CANVAS_HEIGHT_PX = 220
 
 export function TruckLoadPlanner({
   plan,
@@ -32,30 +37,20 @@ export function TruckLoadPlanner({
     [plan.pallets],
   )
   const [selectedPalletId, setSelectedPalletId] = useState(firstOccupiedPallet.id)
-  const selectedPallet =
-    plan.pallets.find((pallet) => pallet.id === selectedPalletId) ?? firstOccupiedPallet
-
-  useEffect(() => {
-    setSelectedPalletId((currentPalletId) => {
-      return plan.pallets.some((pallet) => pallet.id === currentPalletId)
-        ? currentPalletId
-        : firstOccupiedPallet.id
-    })
-  }, [firstOccupiedPallet.id, plan.pallets])
-
-  useEffect(() => {
+  const selectedClientPalletId = useMemo(() => {
     if (!selectedClientId) {
-      return
+      return undefined
     }
 
     const palletForClient = plan.pallets.find((pallet) =>
       pallet.clients.some((client) => client.clientId === selectedClientId),
     )
 
-    if (palletForClient) {
-      setSelectedPalletId(palletForClient.id)
-    }
+    return palletForClient?.id
   }, [plan.pallets, selectedClientId])
+  const selectedPallet =
+    plan.pallets.find((pallet) => pallet.id === (selectedClientPalletId ?? selectedPalletId)) ??
+    firstOccupiedPallet
 
   const handleSelectPallet = useCallback((pallet: TruckPallet) => {
     setSelectedPalletId(pallet.id)
@@ -194,6 +189,22 @@ function TruckTopDownScene({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const isVanPlan = plan.constraints.slots <= 3
   const topImage = isVanPlan ? vanTopImage : truckTopImage
+  const rowCount = Math.max(1, Math.ceil(plan.constraints.slots / 2))
+  const truckLength = rowCount * TOP_DOWN_SLOT_PITCH + 0.62
+  const truckWidth = TOP_DOWN_LANE_PITCH + 1.08
+  const topDownCanvasWidth = Math.round(
+    ((truckLength + TOP_DOWN_LENGTH_PADDING) / (truckWidth + TOP_DOWN_WIDTH_PADDING)) *
+      TOP_DOWN_CANVAS_HEIGHT_PX,
+  )
+  const topDownCenterOffset = Math.round(
+    (TOP_DOWN_LENGTH_PADDING / (truckWidth + TOP_DOWN_WIDTH_PADDING)) *
+      TOP_DOWN_CANVAS_HEIGHT_PX /
+      2,
+  )
+  const topDownStyle = {
+    '--route-truck-canvas-width': `${topDownCanvasWidth}px`,
+    '--route-truck-center-offset': `${topDownCenterOffset}px`,
+  } as CSSProperties
 
   useEffect(() => {
     const container = containerRef.current
@@ -202,12 +213,7 @@ function TruckTopDownScene({
     }
     const containerElement = container
 
-    const rowCount = Math.max(1, Math.ceil(plan.constraints.slots / 2))
-    const slotPitch = 1.54
-    const lanePitch = 0.94
-    const truckLength = rowCount * slotPitch + 0.62
-    const truckWidth = lanePitch + 1.08
-    const rowOffset = ((rowCount - 1) * slotPitch) / 2
+    const rowOffset = ((rowCount - 1) * TOP_DOWN_SLOT_PITCH) / 2
     const palletsById = new Map(plan.pallets.map((pallet) => [pallet.id, pallet]))
 
     const scene = new THREE.Scene()
@@ -233,12 +239,7 @@ function TruckTopDownScene({
     scene.add(topLight)
 
     const floorMaterial = new THREE.MeshBasicMaterial({ color: '#fdf4ec' })
-    const railMaterial = new THREE.MeshStandardMaterial({ color: '#806a54', roughness: 0.62 })
-    const dividerMaterial = new THREE.LineBasicMaterial({
-      color: '#a99583',
-      transparent: true,
-      opacity: 0.55,
-    })
+    const railMaterial = new THREE.MeshStandardMaterial({ color: '#9b9b9b', roughness: 0.62 })
 
     const floor = new THREE.Mesh(new THREE.BoxGeometry(truckLength, 0.05, truckWidth), floorMaterial)
     floor.position.y = -0.03
@@ -259,20 +260,13 @@ function TruckTopDownScene({
     rearRail.position.set(truckLength / 2, 0.03, 0)
     scene.add(rearRail)
 
-    const laneDividerGeometry = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(-truckLength / 2 + 0.16, 0.05, 0),
-      new THREE.Vector3(truckLength / 2 - 0.16, 0.05, 0),
-    ])
-    scene.add(new THREE.Line(laneDividerGeometry, dividerMaterial))
-
     for (const pallet of plan.pallets) {
       const palletGroup = createPalletSceneContent(pallet, {
         dimmed: pallet.id !== selectedPalletId,
         rotate: false,
       })
-      const laneZ = pallet.lane === 'left' ? -lanePitch / 2 : lanePitch / 2
-      const slotX = rowOffset - pallet.row * slotPitch
-      const badgeZ = laneZ - 0.22
+      const laneZ = pallet.lane === 'left' ? -TOP_DOWN_LANE_PITCH / 2 : TOP_DOWN_LANE_PITCH / 2
+      const slotX = rowOffset - pallet.row * TOP_DOWN_SLOT_PITCH
       palletGroup.position.set(slotX, 0.06, laneZ)
       palletGroup.scale.setScalar(0.88)
       tagPalletObjects(palletGroup, pallet.id)
@@ -284,7 +278,7 @@ function TruckTopDownScene({
       scene.add(hitArea)
 
       const numberBadge = createPalletNumberBadge(pallet.slotNumber, pallet.id === selectedPalletId)
-      numberBadge.position.set(slotX, 1.2, badgeZ)
+      numberBadge.position.set(slotX, 1.2, laneZ)
       numberBadge.userData.palletId = pallet.id
       scene.add(numberBadge)
 
@@ -306,8 +300,8 @@ function TruckTopDownScene({
       const width = Math.max(containerElement.clientWidth, 1)
       const height = Math.max(containerElement.clientHeight, 1)
       const aspect = width / height
-      const baseWidth = truckLength + 1.32
-      const baseHeight = truckWidth + 0.72
+      const baseWidth = truckLength + TOP_DOWN_LENGTH_PADDING
+      const baseHeight = truckWidth + TOP_DOWN_WIDTH_PADDING
       let viewWidth = baseWidth
       let viewHeight = baseHeight
 
@@ -317,7 +311,8 @@ function TruckTopDownScene({
         viewHeight = viewWidth / aspect
       }
 
-      const cameraLeft = -truckLength / 2 - 0.02
+      const isStackedLayout = window.matchMedia('(max-width: 900px)').matches
+      const cameraLeft = isStackedLayout ? -viewWidth / 2 : -truckLength / 2 - 0.02
       camera.left = cameraLeft
       camera.right = cameraLeft + viewWidth
       camera.top = viewHeight / 2
@@ -356,10 +351,10 @@ function TruckTopDownScene({
       renderer.dispose()
       renderer.domElement.remove()
     }
-  }, [onSelectPallet, plan, selectedPalletId])
+  }, [onSelectPallet, plan, rowCount, selectedPalletId, truckLength, truckWidth])
 
   return (
-    <div className="route-truck-topdown route-truck-topdown-3d">
+    <div className="route-truck-topdown route-truck-topdown-3d" style={topDownStyle}>
       <div className="route-truck-topdown-stage">
         <img
           alt=""
@@ -804,7 +799,7 @@ function createPalletHitArea() {
 }
 
 function createPalletNumberBadge(slotNumber: number, selected: boolean) {
-  const size = 128
+  const size = 192
   const canvas = document.createElement('canvas')
   canvas.height = size
   canvas.width = size
@@ -813,7 +808,7 @@ function createPalletNumberBadge(slotNumber: number, selected: boolean) {
   if (context) {
     context.clearRect(0, 0, size, size)
     context.beginPath()
-    context.arc(size / 2, size / 2, 45, 0, Math.PI * 2)
+    context.arc(size / 2, size / 2, 70, 0, Math.PI * 2)
     context.fillStyle = selected ? '#c53030' : '#fffaf6'
     context.fill()
     context.lineWidth = selected ? 0 : 5
@@ -822,7 +817,7 @@ function createPalletNumberBadge(slotNumber: number, selected: boolean) {
       context.stroke()
     }
     context.fillStyle = selected ? '#ffffff' : '#8b7a6a'
-    context.font = '700 50px Inter, Arial, sans-serif'
+    context.font = '700 58px Inter, Arial, sans-serif'
     context.textAlign = 'center'
     context.textBaseline = 'middle'
     context.fillText(String(slotNumber), size / 2, size / 2 + 2)
@@ -834,11 +829,12 @@ function createPalletNumberBadge(slotNumber: number, selected: boolean) {
     depthTest: false,
     depthWrite: false,
     map: texture,
+    opacity: 0.9,
     transparent: true,
   })
   const sprite = new THREE.Sprite(material)
   sprite.renderOrder = 12
-  sprite.scale.set(0.32, 0.32, 1)
+  sprite.scale.set(0.36, 0.36, 1)
   return sprite
 }
 
