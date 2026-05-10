@@ -21,6 +21,18 @@ type VisualUnit = LoadPiece & {
   visualShare: number
 }
 
+type UnitSize = {
+  width: number
+  depth: number
+  height: number
+}
+
+type BoxDividerLayout = {
+  columns: number
+  rows: number
+  layers: number
+}
+
 const numberFormatter = new Intl.NumberFormat('es-ES')
 const decimalFormatter = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 })
 const TOP_DOWN_SLOT_PITCH = 1.54
@@ -764,7 +776,7 @@ function createPalletBase() {
 
 function createLoadMesh(
   unit: VisualUnit,
-  size: { width: number; depth: number; height: number },
+  size: UnitSize,
   options: { dimmed?: boolean } = {},
 ) {
   const material = new THREE.MeshStandardMaterial({
@@ -785,12 +797,20 @@ function createLoadMesh(
     const geometry = new THREE.CylinderGeometry(radius, radius, size.height, 28)
     const mesh = new THREE.Mesh(geometry, material)
     mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry), edgeMaterial))
+    const dividerCount = estimateVisualItemCount(unit)
+    if (dividerCount > 1) {
+      mesh.add(createCylinderDividerLines(radius, size.height, dividerCount, Boolean(options.dimmed)))
+    }
     return mesh
   }
 
   const geometry = new THREE.BoxGeometry(size.width, size.height, size.depth)
   const mesh = new THREE.Mesh(geometry, material)
   mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry), edgeMaterial))
+  const dividerLayout = boxDividerLayoutFor(unit, size)
+  if (dividerLayout) {
+    mesh.add(createBoxDividerLines(size, dividerLayout, Boolean(options.dimmed)))
+  }
 
   if (unit.shape === 'crate') {
     const crateLine = new THREE.LineSegments(
@@ -801,6 +821,114 @@ function createLoadMesh(
   }
 
   return mesh
+}
+
+function estimateVisualItemCount(unit: VisualUnit) {
+  const quantityCount = Math.round(Math.max(0, unit.quantity))
+  const groupedItemCount = Math.max(unit.materialCodes.length, unit.products.length)
+  const estimatedCount = quantityCount >= 2 ? quantityCount : groupedItemCount
+  return Math.min(36, Math.max(1, estimatedCount))
+}
+
+function boxDividerLayoutFor(unit: VisualUnit, size: UnitSize): BoxDividerLayout | null {
+  const itemCount = estimateVisualItemCount(unit)
+  if (itemCount <= 1) {
+    return null
+  }
+
+  const layers = clampInteger(Math.ceil(itemCount / 6), 1, 4)
+  const itemsPerLayer = Math.ceil(itemCount / layers)
+  const widthDepthRatio = clamp(size.width / size.depth, 0.7, 1.8)
+  const columns = clampInteger(Math.ceil(Math.sqrt(itemsPerLayer * widthDepthRatio)), 1, 4)
+  const rows = clampInteger(Math.ceil(itemsPerLayer / columns), 1, 3)
+
+  return {
+    columns,
+    rows,
+    layers,
+  }
+}
+
+function createBoxDividerLines(size: UnitSize, layout: BoxDividerLayout, dimmed: boolean) {
+  const points: number[] = []
+  const halfWidth = size.width / 2
+  const halfDepth = size.depth / 2
+  const halfHeight = size.height / 2
+  const offset = 0.004
+
+  const addSegment = (from: [number, number, number], to: [number, number, number]) => {
+    points.push(...from, ...to)
+  }
+
+  for (let layer = 1; layer < layout.layers; layer += 1) {
+    const y = -halfHeight + (size.height * layer) / layout.layers
+    addSegment([-halfWidth - offset, y, -halfDepth - offset], [halfWidth + offset, y, -halfDepth - offset])
+    addSegment([halfWidth + offset, y, -halfDepth - offset], [halfWidth + offset, y, halfDepth + offset])
+    addSegment([halfWidth + offset, y, halfDepth + offset], [-halfWidth - offset, y, halfDepth + offset])
+    addSegment([-halfWidth - offset, y, halfDepth + offset], [-halfWidth - offset, y, -halfDepth - offset])
+  }
+
+  for (let column = 1; column < layout.columns; column += 1) {
+    const x = -halfWidth + (size.width * column) / layout.columns
+    addSegment([x, -halfHeight, halfDepth + offset], [x, halfHeight, halfDepth + offset])
+    addSegment([x, -halfHeight, -halfDepth - offset], [x, halfHeight, -halfDepth - offset])
+    addSegment([x, halfHeight + offset, -halfDepth], [x, halfHeight + offset, halfDepth])
+  }
+
+  for (let row = 1; row < layout.rows; row += 1) {
+    const z = -halfDepth + (size.depth * row) / layout.rows
+    addSegment([-halfWidth - offset, -halfHeight, z], [-halfWidth - offset, halfHeight, z])
+    addSegment([halfWidth + offset, -halfHeight, z], [halfWidth + offset, halfHeight, z])
+    addSegment([-halfWidth, halfHeight + offset, z], [halfWidth, halfHeight + offset, z])
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3))
+  const material = new THREE.LineBasicMaterial({
+    color: '#231916',
+    depthTest: true,
+    depthWrite: false,
+    transparent: true,
+    opacity: dimmed ? 0.16 : 0.54,
+  })
+  const lines = new THREE.LineSegments(geometry, material)
+  lines.renderOrder = 4
+  return lines
+}
+
+function createCylinderDividerLines(radius: number, height: number, itemCount: number, dimmed: boolean) {
+  const points: number[] = []
+  const divisions = clampInteger(itemCount, 2, 7)
+  const segmentCount = 48
+
+  for (let divider = 1; divider < divisions; divider += 1) {
+    const y = -height / 2 + (height * divider) / divisions
+    for (let segment = 0; segment < segmentCount; segment += 1) {
+      const startAngle = (segment / segmentCount) * Math.PI * 2
+      const endAngle = ((segment + 1) / segmentCount) * Math.PI * 2
+      points.push(
+        Math.cos(startAngle) * (radius + 0.004),
+        y,
+        Math.sin(startAngle) * (radius + 0.004),
+        Math.cos(endAngle) * (radius + 0.004),
+        y,
+        Math.sin(endAngle) * (radius + 0.004),
+      )
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3))
+  const material = new THREE.LineBasicMaterial({
+    color: '#231916',
+    depthTest: true,
+    depthWrite: false,
+    transparent: true,
+    opacity: dimmed ? 0.14 : 0.48,
+  })
+  const lines = new THREE.LineSegments(geometry, material)
+  lines.renderOrder = 4
+  return lines
 }
 
 function createSelectionFrame(width: number, depth: number) {
@@ -887,10 +1015,14 @@ function expandVisualUnits(pieces: readonly LoadPiece[]) {
   for (const piece of pieces) {
     const count = Math.min(6, Math.max(1, Math.ceil(piece.palletShare / 0.13)))
     for (let index = 0; index < count; index += 1) {
+      const visualRatio = 1 / count
       units.push({
         ...piece,
+        quantity: piece.quantity * visualRatio,
+        volumeM3: piece.volumeM3 * visualRatio,
+        weightKg: piece.weightKg * visualRatio,
         visualId: `${piece.id}-${index}`,
-        visualShare: piece.palletShare / count,
+        visualShare: piece.palletShare * visualRatio,
       })
     }
   }
@@ -963,6 +1095,10 @@ function disposeObject(object: THREE.Object3D) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
+}
+
+function clampInteger(value: number, min: number, max: number) {
+  return Math.round(clamp(value, min, max))
 }
 
 function formatKg(value: number) {
