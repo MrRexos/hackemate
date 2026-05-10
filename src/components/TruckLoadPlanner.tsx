@@ -52,16 +52,6 @@ type PlacedVisualUnit = SizedVisualUnit & {
   z: number
 }
 
-type LoadStack = {
-  depth: number
-  height: number
-  productType: string
-  stackKey: string
-  width: number
-  x: number
-  z: number
-}
-
 const numberFormatter = new Intl.NumberFormat('es-ES')
 const decimalFormatter = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 })
 const TOP_DOWN_SLOT_PITCH = 1.54
@@ -852,10 +842,8 @@ function createLoadMesh(
 }
 
 function estimateVisualItemCount(unit: VisualUnit) {
-  const quantityCount = Math.round(Math.max(0, unit.quantity))
   const groupedItemCount = Math.max(unit.materialCodes.length, unit.products.length)
-  const estimatedCount = quantityCount >= 2 ? quantityCount : groupedItemCount
-  return Math.min(36, Math.max(1, estimatedCount))
+  return Math.min(4, Math.max(1, groupedItemCount))
 }
 
 function boxDividerLayoutFor(unit: VisualUnit, size: UnitSize): BoxDividerLayout | null {
@@ -1028,42 +1016,45 @@ function tagPalletObjects(group: THREE.Object3D, palletId: string) {
 }
 
 function expandVisualUnits(pieces: readonly LoadPiece[]) {
-  const units: VisualUnit[] = []
-  for (const piece of pieces) {
-    const quantityCount = Math.round(Math.max(0, piece.quantity))
-    const countByQuantity = quantityCount <= 8 ? quantityCount : Math.ceil(Math.sqrt(quantityCount))
-    const count = Math.min(8, Math.max(1, Math.ceil(piece.palletShare / 0.12), countByQuantity))
-    for (let index = 0; index < count; index += 1) {
-      const visualRatio = 1 / count
-      units.push({
-        ...piece,
-        quantity: piece.quantity * visualRatio,
-        volumeM3: piece.volumeM3 * visualRatio,
-        weightKg: piece.weightKg * visualRatio,
-        visualId: `${piece.id}-${index}`,
-        visualShare: piece.palletShare * visualRatio,
-      })
-    }
-  }
-  return units.slice(0, 48)
+  return pieces.slice(0, 48).map((piece) => ({
+    ...piece,
+    visualId: piece.id,
+    visualShare: piece.palletShare,
+  }))
 }
 
 function packVisualUnits(units: readonly VisualUnit[]): PlacedVisualUnit[] {
-  const sizedUnits = units
+  const baseSizedUnits = units
     .map((unit) => ({
       unit,
       size: unitSize(unit),
     }))
     .sort(compareSizedUnits)
+  const totalArea = baseSizedUnits.reduce((total, item) => total + item.size.width * item.size.depth, 0)
+  const palletArea = PALLET_LOAD_WIDTH * PALLET_LOAD_DEPTH
+  const baseScale = totalArea > palletArea * 0.82
+    ? Math.sqrt((palletArea * 0.82) / totalArea)
+    : 1
+
+  for (const scale of [baseScale, baseScale * 0.9, baseScale * 0.8, baseScale * 0.7, baseScale * 0.6]) {
+    const placedUnits = packOnShelves(baseSizedUnits.map((item) => scaleSizedUnit(item, scale)))
+    if (placedUnits) {
+      return placedUnits
+    }
+  }
+
+  return packOnGrid(baseSizedUnits)
+}
+
+function packOnShelves(sizedUnits: readonly SizedVisualUnit[]): PlacedVisualUnit[] | null {
   const placedUnits: PlacedVisualUnit[] = []
-  const stacks: LoadStack[] = []
   const halfWidth = PALLET_LOAD_WIDTH / 2
   const halfDepth = PALLET_LOAD_DEPTH / 2
   let cursorX = -halfWidth
   let cursorZ = -halfDepth
   let shelfDepth = 0
 
-  const placeOnFloor = (item: SizedVisualUnit) => {
+  for (const item of sizedUnits) {
     if (cursorX + item.size.width > halfWidth + 0.001) {
       cursorX = -halfWidth
       cursorZ += shelfDepth + PALLET_LOAD_GAP
@@ -1074,50 +1065,14 @@ function packVisualUnits(units: readonly VisualUnit[]): PlacedVisualUnit[] {
       return null
     }
 
-    const x = cursorX + item.size.width / 2
-    const z = cursorZ + item.size.depth / 2
-    cursorX += item.size.width + PALLET_LOAD_GAP
-    shelfDepth = Math.max(shelfDepth, item.size.depth)
-    return { baseY: PALLET_LOAD_BASE_Y, x, z }
-  }
-
-  for (const item of sizedUnits) {
-    const floorPlacement = placeOnFloor(item)
-    const stack = floorPlacement ? null : findStackForUnit(stacks, item)
-    const placement = floorPlacement ?? (
-      stack
-        ? {
-            baseY: PALLET_LOAD_BASE_Y + stack.height + PALLET_LOAD_GAP,
-            x: stack.x,
-            z: stack.z,
-          }
-        : {
-            baseY: PALLET_LOAD_BASE_Y,
-            x: 0,
-            z: 0,
-          }
-    )
-
     placedUnits.push({
       ...item,
-      ...placement,
+      baseY: PALLET_LOAD_BASE_Y,
+      x: cursorX + item.size.width / 2,
+      z: cursorZ + item.size.depth / 2,
     })
-
-    if (stack) {
-      stack.height += item.size.height + PALLET_LOAD_GAP
-      stack.width = Math.max(stack.width, item.size.width)
-      stack.depth = Math.max(stack.depth, item.size.depth)
-    } else {
-      stacks.push({
-        depth: item.size.depth,
-        height: item.size.height,
-        productType: item.unit.productType,
-        stackKey: stackKeyFor(item.unit),
-        width: item.size.width,
-        x: placement.x,
-        z: placement.z,
-      })
-    }
+    cursorX += item.size.width + PALLET_LOAD_GAP
+    shelfDepth = Math.max(shelfDepth, item.size.depth)
   }
 
   return placedUnits
@@ -1135,31 +1090,43 @@ function compareSizedUnits(a: SizedVisualUnit, b: SizedVisualUnit) {
   )
 }
 
-function findStackForUnit(stacks: readonly LoadStack[], item: SizedVisualUnit) {
-  const exactKey = stackKeyFor(item.unit)
-  const compatible = stacks
-    .filter((stack) => canStackOn(stack, item) && stack.stackKey === exactKey)
-    .sort((a, b) => a.height - b.height)
+function packOnGrid(sizedUnits: readonly SizedVisualUnit[]): PlacedVisualUnit[] {
+  const count = Math.max(1, sizedUnits.length)
+  const columns = clampInteger(Math.ceil(Math.sqrt(count * (PALLET_LOAD_WIDTH / PALLET_LOAD_DEPTH))), 1, count)
+  const rows = Math.ceil(count / columns)
+  const cellWidth = (PALLET_LOAD_WIDTH - PALLET_LOAD_GAP * Math.max(0, columns - 1)) / columns
+  const cellDepth = (PALLET_LOAD_DEPTH - PALLET_LOAD_GAP * Math.max(0, rows - 1)) / rows
+  const startX = -PALLET_LOAD_WIDTH / 2
+  const startZ = -PALLET_LOAD_DEPTH / 2
 
-  if (compatible[0]) {
-    return compatible[0]
+  return sizedUnits.map((item, index) => {
+    const column = index % columns
+    const row = Math.floor(index / columns)
+    const fitScale = Math.min(
+      1,
+      cellWidth / Math.max(item.size.width, 0.001),
+      cellDepth / Math.max(item.size.depth, 0.001),
+    )
+    const fitted = scaleSizedUnit(item, fitScale)
+    return {
+      ...fitted,
+      baseY: PALLET_LOAD_BASE_Y,
+      x: startX + column * (cellWidth + PALLET_LOAD_GAP) + cellWidth / 2,
+      z: startZ + row * (cellDepth + PALLET_LOAD_GAP) + cellDepth / 2,
+    }
+  })
+}
+
+function scaleSizedUnit(item: SizedVisualUnit, scale: number): SizedVisualUnit {
+  const safeScale = clamp(scale, 0.28, 1)
+  return {
+    unit: item.unit,
+    size: {
+      width: item.size.width * safeScale,
+      depth: item.size.depth * safeScale,
+      height: item.size.height * safeScale,
+    },
   }
-
-  return stacks
-    .filter((stack) => canStackOn(stack, item) && stack.productType === item.unit.productType)
-    .sort((a, b) => a.height - b.height)[0] ?? null
-}
-
-function canStackOn(stack: LoadStack, item: SizedVisualUnit) {
-  return (
-    stack.height + item.size.height + PALLET_LOAD_GAP <= PALLET_MAX_STACK_HEIGHT &&
-    item.size.width <= stack.width * 1.18 &&
-    item.size.depth <= stack.depth * 1.18
-  )
-}
-
-function stackKeyFor(unit: VisualUnit) {
-  return `${unit.productType}:${unit.materialCodes[0] ?? unit.products[0] ?? 'generico'}`
 }
 
 function unitSize(unit: VisualUnit) {
