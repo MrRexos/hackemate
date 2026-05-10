@@ -104,6 +104,53 @@ a {
   font-size: 12px;
 }
 
+.route-vehicle-marker-wrapper {
+  background: transparent;
+  border: 0;
+}
+
+.route-vehicle-marker {
+  align-items: center;
+  background: #c8312f;
+  border: 3px solid #fffaf6;
+  border-radius: 999px;
+  box-shadow: 0 7px 18px rgba(74, 59, 48, 0.28);
+  display: flex;
+  height: 36px;
+  justify-content: center;
+  transition:
+    background 180ms ease,
+    box-shadow 180ms ease;
+  width: 36px;
+}
+
+.route-vehicle-marker > span {
+  background: #ffffff;
+  border-radius: 3px;
+  display: block;
+  height: 10px;
+  position: relative;
+  width: 17px;
+}
+
+.route-vehicle-marker > span::before {
+  background: #ffffff;
+  border-radius: 1px 3px 3px 1px;
+  content: '';
+  height: 7px;
+  position: absolute;
+  right: -5px;
+  top: 2px;
+  width: 6px;
+}
+
+.route-vehicle-marker-stopped {
+  background: #d97706;
+  box-shadow:
+    0 0 0 6px rgba(217, 119, 6, 0.18),
+    0 7px 18px rgba(74, 59, 48, 0.28);
+}
+
 .route-screen {
   color: #4a3b30;
 }
@@ -284,6 +331,38 @@ a {
   margin-top: 67px;
 }
 
+.route-simulation-controls {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: flex-end;
+}
+
+.route-simulation-clock {
+  align-items: center;
+  background: #fffaf6;
+  border-radius: 14px;
+  display: inline-flex;
+  min-height: 54px;
+  padding: 8px 16px;
+}
+
+.route-simulation-clock strong {
+  color: #c8312f;
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.route-simulation-clock-stopped strong {
+  color: #d97706;
+}
+
+.route-simulation-clock-complete strong {
+  color: #15803d;
+}
+
 .route-start-button {
   align-items: center;
   background: #c8312f;
@@ -293,9 +372,31 @@ a {
   display: inline-flex;
   font-size: 14px;
   font-weight: 800;
+  gap: 8px;
   height: 40px;
   justify-content: center;
   padding: 0 20px;
+  transition:
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.route-start-button:hover:not(:disabled) {
+  background: #b82c2a;
+}
+
+.route-start-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.route-start-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.route-start-button-icon {
+  height: 16px;
+  width: 16px;
 }
 
 .route-map-frame {
@@ -766,10 +867,9 @@ a {
   font-size: 13px;
   font-weight: 800;
   line-height: 1.18;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
   text-transform: uppercase;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .route-pallet-content-item small {
@@ -1047,6 +1147,21 @@ a {
     align-items: flex-start;
     flex-direction: column;
     gap: 18px;
+  }
+
+  .route-simulation-controls {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .route-simulation-clock {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .route-start-button {
+    width: 100%;
   }
 
   .route-kpi-grid {

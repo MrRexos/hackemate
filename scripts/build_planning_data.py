@@ -20,6 +20,7 @@ from build_pilot_route import (
     infer_priority,
     int_string,
     load_difficulty,
+    material_dimensions,
     material_metrics,
     match_schedule,
     norm_text,
@@ -259,6 +260,12 @@ def build_dataset() -> dict[str, Any]:
             by_material_unit,
             pallet_by_material,
         )
+        dimensions = material_dimensions(
+            row[material_col],
+            row[unit_col],
+            by_material_unit,
+            pallet_by_material,
+        )
         type_name = product_type(row[description_col], row[unit_col])
         is_returnable = type_name == "retornable"
 
@@ -307,17 +314,29 @@ def build_dataset() -> dict[str, Any]:
                 "weightKg": 0.0,
                 "volumeM3": 0.0,
                 "pallets": 0.0,
+                "lengthCm": 0.0,
+                "widthCm": 0.0,
+                "heightCm": 0.0,
+                "_dimensionWeight": 0.0,
                 "returnable": is_returnable,
                 "metricSource": "",
+                "dimensionSource": "",
             },
         )
         grouped_row["quantity"] += quantity
         grouped_row["weightKg"] += metrics["weightKg"]
         grouped_row["volumeM3"] += metrics["volumeM3"]
         grouped_row["pallets"] += metrics["pallets"]
+        if dimensions["dimensionSource"] == "ZM040 dimensiones directas":
+            dimension_weight = max(quantity, 1.0)
+            grouped_row["lengthCm"] += dimensions["lengthCm"] * dimension_weight
+            grouped_row["widthCm"] += dimensions["widthCm"] * dimension_weight
+            grouped_row["heightCm"] += dimensions["heightCm"] * dimension_weight
+            grouped_row["_dimensionWeight"] += dimension_weight
         product_names_by_group[group_key][product] += quantity
         material_counts_by_group[group_key][material] += 1
         metric_sources_by_group[group_key][metrics["source"]] += 1
+        metric_sources_by_group[(group_key, "dimensions")][dimensions["dimensionSource"]] += 1
         date_product_totals[date][product] += quantity
         date_materials[date].add(material)
         date_deliveries[date].add(delivery_id)
@@ -333,7 +352,17 @@ def build_dataset() -> dict[str, Any]:
         grouped_row["weightKg"] = round_float(grouped_row["weightKg"], 3)
         grouped_row["volumeM3"] = round_float(grouped_row["volumeM3"], 5)
         grouped_row["pallets"] = round_float(grouped_row["pallets"], 5)
+        dimension_weight = grouped_row.pop("_dimensionWeight", 0.0)
+        if dimension_weight > 0:
+            grouped_row["lengthCm"] = round_float(grouped_row["lengthCm"] / dimension_weight, 2)
+            grouped_row["widthCm"] = round_float(grouped_row["widthCm"] / dimension_weight, 2)
+            grouped_row["heightCm"] = round_float(grouped_row["heightCm"] / dimension_weight, 2)
+        else:
+            grouped_row["lengthCm"] = 0.0
+            grouped_row["widthCm"] = 0.0
+            grouped_row["heightCm"] = 0.0
         grouped_row["metricSource"] = compact_metric_sources(metric_sources_by_group[group_key])
+        grouped_row["dimensionSource"] = compact_metric_sources(metric_sources_by_group[(group_key, "dimensions")])
 
     days: dict[str, Any] = {}
     date_summaries = []

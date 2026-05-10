@@ -43,8 +43,12 @@ export type PlanningLoadRow = {
   weightKg: number
   volumeM3: number
   pallets: number
+  lengthCm?: number
+  widthCm?: number
+  heightCm?: number
   returnable: boolean
   metricSource: string
+  dimensionSource?: string
 }
 
 export type PlanningDaySummary = {

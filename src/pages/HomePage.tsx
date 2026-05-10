@@ -9,8 +9,10 @@ import {
   ChevronUp,
   Grid3X3,
   Package,
+  Play,
   Percent,
   Road,
+  RotateCcw,
   ThumbsDown,
   UsersRound,
   Weight,
@@ -42,6 +44,57 @@ import vanIcon from '../../assets/van.svg'
 type HomePageProps = {
   activeView: AppView
   onNavigate: (view: AppView) => void
+}
+
+type RouteSimulationStatus = 'idle' | 'running' | 'finished'
+
+type RouteSimulationRunState = {
+  elapsedMs: number
+  routeKey: string
+  runId: number
+  status: RouteSimulationStatus
+}
+
+type RouteSimulationPhaseBase = {
+  realEndMs: number
+  realStartMs: number
+  routeEndMinute: number
+  routeStartMinute: number
+}
+
+type RouteSimulationDrivePhase = RouteSimulationPhaseBase & {
+  destinationClientId: string
+  destinationName: string
+  kind: 'drive'
+  legIndex: number
+}
+
+type RouteSimulationServicePhase = RouteSimulationPhaseBase & {
+  clientId: string
+  clientName: string
+  kind: 'service'
+  legIndex: number
+  serviceMinutes: number
+}
+
+type RouteSimulationPhase = RouteSimulationDrivePhase | RouteSimulationServicePhase
+
+type RouteSimulationTimeline = {
+  finishMinute: number
+  phases: readonly RouteSimulationPhase[]
+  startMinute: number
+  totalRealMs: number
+}
+
+type RouteSimulationSnapshot = {
+  clockLabel: string
+  complete: boolean
+  detailLabel: string
+  highlightedClientId: string
+  isStopped: boolean
+  legIndex: number
+  legProgress: number
+  statusLabel: string
 }
 
 const numberFormatter = new Intl.NumberFormat('es-ES')
@@ -79,8 +132,25 @@ const truckRouteColors = [
 
 const EMPTY_ROUTE_CLIENTS: readonly RouteClient[] = []
 const EMPTY_ROAD_POLYLINES: Record<string, readonly PolylinePoint[]> = {}
+const ROUTE_START_MINUTE = 8 * 60
+const EMPTY_ROUTE_SIMULATION_TIMELINE: RouteSimulationTimeline = {
+  finishMinute: ROUTE_START_MINUTE,
+  phases: [],
+  startMinute: ROUTE_START_MINUTE,
+  totalRealMs: 0,
+}
 const HOME_DISPLAY_DATE = '2026-05-09'
 const ROUTE_DEFAULT_TRUCK_INDEX = 11
+const ROUTE_DRIVE_MINUTES_PER_SECOND = 12
+const ROUTE_MIN_DRIVE_MS = 800
+const ROUTE_MAX_DRIVE_MS = 8_500
+const ROUTE_STOP_MS_PER_SERVICE_MINUTE = 240
+const ROUTE_MIN_STOP_MS = 2_200
+const ROUTE_MAX_STOP_MS = 7_500
+const ROUTE_ANIMATION_STATE_INTERVAL_MS = 80
+const ROUTE_DAY_MINUTES = 24 * 60
+const ROUTE_MIDNIGHT_ROLLOVER_AFTER_MINUTE = 18 * 60
+const ROUTE_MIDNIGHT_ROLLOVER_BEFORE_MINUTE = 6 * 60
 const HOME_INITIAL_AVAILABILITY_BY_CAPACITY: Record<number, number> = {
   3: 2,
   6: 10,
@@ -444,25 +514,10 @@ function OrganizationView({
 
   return (
     <div className="space-y-[34px]" id="organizacion">
-      <section className="flex flex-wrap items-end justify-between gap-5">
-        <div>
-          <p className="text-[11px] font-bold uppercase leading-none tracking-[0.18em] text-[#b8aa9c]">
-            Organización
-          </p>
-          <h1 className="mt-4 max-w-4xl text-[28px] font-bold leading-[1.18] text-[#47392b] sm:text-[34px]">
-            Distribución optimizada para {formatDate(plan.date)}.
-          </h1>
-          <p className="mt-4 max-w-3xl text-[15px] font-medium leading-6 text-[#806a54]">
-            Se asignan todos los pedidos del día y se dejan libres los transportes que no mejoran
-            el coste operativo global.
-          </p>
-        </div>
-        <Button
-          disabled={!selectedTruck || selectedTruck.clients.length === 0}
-          onClick={() => onNavigate('ruta')}
-        >
-          Ver ruta
-        </Button>
+      <section>
+        <h1 className="max-w-4xl text-[28px] font-bold leading-[1.18] text-[#47392b] sm:text-[34px]">
+          Distribución optimizada para {formatDate(plan.date)}.
+        </h1>
       </section>
 
       <section className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -473,7 +528,17 @@ function OrganizationView({
       </section>
 
       <section className="route-section distribution-transports-section">
-        <h2 className="route-section-title">Transportes:</h2>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <h2 className="route-section-title">Transportes:</h2>
+          {selectedTruck ? (
+            <Button
+              disabled={selectedTruck.clients.length === 0}
+              onClick={() => onNavigate('ruta')}
+            >
+              Ver ruta
+            </Button>
+          ) : null}
+        </div>
         <DistributionTransportsList
           onSelectTruck={handleSelectTruck}
           selectedTruckId={selectedRouteId}
@@ -630,13 +695,97 @@ function RouteDetailView({
     plan?.assignedTrucks.find((truck) => truck.id === selectedTruckId) ?? plan?.assignedTrucks[0]
   const clients = selectedTruck?.clients ?? EMPTY_ROUTE_CLIENTS
   const [selectedClientId, setSelectedClientId] = useState('')
+  const [routeSimulation, setRouteSimulation] = useState<RouteSimulationRunState>({
+    elapsedMs: 0,
+    routeKey: '',
+    runId: 0,
+    status: 'idle',
+  })
+  const routeSimulationElapsedRef = useRef(0)
+  const selectedTruckKey = selectedTruck?.id ?? ''
   const effectiveSelectedClientId = clients.some((client) => client.clientId === selectedClientId)
     ? selectedClientId
     : ''
+  const activeRouteSimulationStatus =
+    routeSimulation.routeKey === selectedTruckKey ? routeSimulation.status : 'idle'
+  const simulationTimeline = useMemo(
+    () => (selectedTruck ? buildRouteSimulationTimeline(selectedTruck) : EMPTY_ROUTE_SIMULATION_TIMELINE),
+    [selectedTruck],
+  )
+  const simulationSnapshot = useMemo(() => {
+    if (activeRouteSimulationStatus === 'idle') {
+      return null
+    }
+
+    return getRouteSimulationSnapshot(simulationTimeline, routeSimulation.elapsedMs)
+  }, [activeRouteSimulationStatus, routeSimulation.elapsedMs, simulationTimeline])
 
   const handleSelectClient = useCallback((clientId: string) => {
     setSelectedClientId((currentClientId) => (currentClientId === clientId ? '' : clientId))
   }, [])
+
+  const handleStartRoute = useCallback(() => {
+    if (!selectedTruck || clients.length === 0) {
+      return
+    }
+
+    setSelectedClientId('')
+    setRouteSimulation((current) => ({
+      elapsedMs: simulationTimeline.totalRealMs > 0 ? 0 : simulationTimeline.totalRealMs,
+      routeKey: selectedTruck.id,
+      runId: current.runId + 1,
+      status: simulationTimeline.totalRealMs > 0 ? 'running' : 'finished',
+    }))
+  }, [clients.length, selectedTruck, simulationTimeline.totalRealMs])
+
+  useEffect(() => {
+    routeSimulationElapsedRef.current = routeSimulation.elapsedMs
+  }, [routeSimulation.elapsedMs])
+
+  useEffect(() => {
+    if (routeSimulation.status !== 'running' || routeSimulation.routeKey !== selectedTruckKey) {
+      return
+    }
+
+    const totalRealMs = simulationTimeline.totalRealMs
+    const startedAt = performance.now() - routeSimulationElapsedRef.current
+    let animationFrame = 0
+    let lastStateUpdate = 0
+
+    function tick(now: number) {
+      const elapsedMs = Math.min(totalRealMs, now - startedAt)
+      const shouldUpdateState =
+        elapsedMs >= totalRealMs || now - lastStateUpdate >= ROUTE_ANIMATION_STATE_INTERVAL_MS
+
+      if (shouldUpdateState) {
+        lastStateUpdate = now
+        setRouteSimulation((current) => {
+          if (current.status !== 'running' || current.routeKey !== selectedTruckKey) {
+            return current
+          }
+
+          return {
+            ...current,
+            elapsedMs,
+            status: elapsedMs >= totalRealMs ? 'finished' : 'running',
+          }
+        })
+      }
+
+      if (elapsedMs < totalRealMs) {
+        animationFrame = window.requestAnimationFrame(tick)
+      }
+    }
+
+    animationFrame = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(animationFrame)
+  }, [
+    routeSimulation.routeKey,
+    routeSimulation.runId,
+    routeSimulation.status,
+    selectedTruckKey,
+    simulationTimeline.totalRealMs,
+  ])
 
   const topProducts = useMemo(() => {
     const totals = new Map<string, { material: string; product: string; quantity: number; unit: string }>()
@@ -679,6 +828,15 @@ function RouteDetailView({
   }
 
   const selectedTruckName = routeTruckLabel(plan.assignedTrucks, selectedTruck)
+  const activeSelectedClientId = simulationSnapshot?.highlightedClientId || effectiveSelectedClientId
+  const routeClockLabel = simulationSnapshot?.clockLabel ?? formatRouteClockMinute(simulationTimeline.startMinute)
+  const routeStartLabel =
+    activeRouteSimulationStatus === 'finished'
+      ? 'Repetir ruta'
+      : activeRouteSimulationStatus === 'running'
+        ? 'Reiniciar ruta'
+        : 'Iniciar ruta'
+  const RouteStartIcon = activeRouteSimulationStatus === 'idle' ? Play : RotateCcw
 
   return (
     <div className="route-screen" id="ruta">
@@ -731,12 +889,26 @@ function RouteDetailView({
 
         <div className="route-map-heading">
           <h2>Mapa del reparto:</h2>
+          <div className="route-simulation-controls">
+            <div
+              className={cn(
+                'route-simulation-clock',
+                simulationSnapshot?.isStopped && 'route-simulation-clock-stopped',
+                simulationSnapshot?.complete && 'route-simulation-clock-complete',
+              )}
+            >
+              <strong>{routeClockLabel}</strong>
+            </div>
             <button
-            className="route-start-button"
+              className="route-start-button"
+              disabled={clients.length === 0}
+              onClick={handleStartRoute}
               type="button"
             >
-            Iniciar ruta
+              <RouteStartIcon aria-hidden="true" className="route-start-button-icon" strokeWidth={2.8} />
+              <span>{routeStartLabel}</span>
             </button>
+          </div>
           </div>
 
         <div className="route-map-frame">
@@ -747,8 +919,9 @@ function RouteDetailView({
             optimizedPolyline={selectedTruck.optimizedPolyline}
             originalPolyline={selectedTruck.originalPolyline}
             routeKey={selectedTruck.id}
-            selectedClientId={effectiveSelectedClientId}
+            selectedClientId={activeSelectedClientId}
             showOriginalRoute={false}
+            simulation={simulationSnapshot}
           />
         </div>
       </section>
@@ -759,7 +932,7 @@ function RouteDetailView({
             clients={clients}
             onSelectClient={handleSelectClient}
           rowsByClient={rowsByClient}
-            selectedClientId={effectiveSelectedClientId}
+            selectedClientId={activeSelectedClientId}
           />
       </section>
 
@@ -767,7 +940,7 @@ function RouteDetailView({
           <TruckLoadPlanner
             onSelectClient={handleSelectClient}
             plan={selectedTruck.loadPlan}
-            selectedClientId={effectiveSelectedClientId}
+            selectedClientId={activeSelectedClientId}
             showFloorPlan
           />
       </section>
@@ -1233,6 +1406,7 @@ function RouteMap({
   routeKey,
   selectedClientId,
   showOriginalRoute,
+  simulation,
   onSelectClient,
 }: {
   clients: readonly RouteClient[]
@@ -1242,11 +1416,14 @@ function RouteMap({
   routeKey: string
   selectedClientId: string
   showOriginalRoute: boolean
+  simulation?: RouteSimulationSnapshot | null
   onSelectClient: (clientId: string) => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
   const layerRef = useRef<L.LayerGroup | null>(null)
+  const vehicleMarkerRef = useRef<L.Marker | null>(null)
+  const vehicleStoppedRef = useRef<boolean | null>(null)
   const fittedRef = useRef(false)
   const roadRouteKey = useMemo(
     () =>
@@ -1257,9 +1434,10 @@ function RouteMap({
   )
   const [roadRouteState, setRoadRouteState] = useState<{
     key: string
+    optimizedLegs: readonly (readonly PolylinePoint[])[] | null
     optimizedPolyline: readonly PolylinePoint[] | null
     originalPolyline: readonly PolylinePoint[] | null
-  }>({ key: '', optimizedPolyline: null, originalPolyline: null })
+  }>({ key: '', optimizedLegs: null, optimizedPolyline: null, originalPolyline: null })
   const hasCurrentRoadRoute = roadRouteState.key === roadRouteKey
 
   useEffect(() => {
@@ -1269,13 +1447,19 @@ function RouteMap({
   useEffect(() => {
     let cancelled = false
 
+    const optimizedLegRequests = optimizedPolyline.slice(0, -1).map((point, index) => {
+      return getRoadRoutePolyline([point, optimizedPolyline[index + 1]])
+    })
+
     void Promise.all([
       getRoadRoutePolyline(optimizedPolyline),
       showOriginalRoute ? getRoadRoutePolyline(originalPolyline) : Promise.resolve(null),
-    ]).then(([roadOptimizedPolyline, roadOriginalPolyline]) => {
+      Promise.all(optimizedLegRequests),
+    ]).then(([roadOptimizedPolyline, roadOriginalPolyline, roadOptimizedLegs]) => {
       if (!cancelled) {
         setRoadRouteState({
           key: roadRouteKey,
+          optimizedLegs: roadOptimizedLegs,
           optimizedPolyline: roadOptimizedPolyline,
           originalPolyline: roadOriginalPolyline,
         })
@@ -1311,8 +1495,17 @@ function RouteMap({
     return () => {
       map.remove()
       mapRef.current = null
+      vehicleMarkerRef.current = null
     }
   }, [depot.lat, depot.lng])
+
+  useEffect(() => {
+    return () => {
+      vehicleMarkerRef.current?.remove()
+      vehicleMarkerRef.current = null
+      vehicleStoppedRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1402,6 +1595,43 @@ function RouteMap({
     onSelectClient,
   ])
 
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !simulation) {
+      vehicleMarkerRef.current?.remove()
+      vehicleMarkerRef.current = null
+      vehicleStoppedRef.current = null
+      return
+    }
+
+    const point = getSimulationMapPoint(
+      simulation,
+      optimizedPolyline,
+      hasCurrentRoadRoute ? roadRouteState.optimizedLegs : null,
+    )
+    if (!point) {
+      return
+    }
+
+    const latLng: [number, number] = [point.lat, point.lng]
+    if (!vehicleMarkerRef.current) {
+      vehicleMarkerRef.current = L.marker(latLng, {
+        icon: createRouteVehicleIcon(simulation.isStopped),
+        interactive: false,
+        keyboard: false,
+        zIndexOffset: 1_000,
+      }).addTo(map)
+      vehicleStoppedRef.current = simulation.isStopped
+      return
+    }
+
+    vehicleMarkerRef.current.setLatLng(latLng)
+    if (vehicleStoppedRef.current !== simulation.isStopped) {
+      vehicleMarkerRef.current.setIcon(createRouteVehicleIcon(simulation.isStopped))
+      vehicleStoppedRef.current = simulation.isStopped
+    }
+  }, [hasCurrentRoadRoute, optimizedPolyline, roadRouteState.optimizedLegs, simulation])
+
   return (
     <div className="route-map-canvas">
       <div className="h-full w-full" ref={containerRef} />
@@ -1429,6 +1659,17 @@ function createRouteSequenceIcon(sequence: number, color: string, selected: bool
   })
 }
 
+function createRouteVehicleIcon(isStopped: boolean) {
+  return L.divIcon({
+    className: 'route-vehicle-marker-wrapper',
+    html: `<span class="route-vehicle-marker${
+      isStopped ? ' route-vehicle-marker-stopped' : ''
+    }"><span></span></span>`,
+    iconAnchor: [18, 18],
+    iconSize: [36, 36],
+  })
+}
+
 function EmptyState({ title, body }: { title: string; body: string }) {
   return (
     <div className="rounded-[18px] bg-[#fdf9f6] p-8">
@@ -1436,6 +1677,238 @@ function EmptyState({ title, body }: { title: string; body: string }) {
       <p className="mt-3 text-sm font-medium leading-6 text-[#806a54]">{body}</p>
     </div>
   )
+}
+
+function buildRouteSimulationTimeline(truck: PlannedTruck): RouteSimulationTimeline {
+  const phases: RouteSimulationPhase[] = []
+  let routeMinute = ROUTE_START_MINUTE
+  let realMs = 0
+
+  truck.clients.forEach((client, index) => {
+    const arrivalMinute = parseRouteClockMinute(client.arrival, routeMinute) ?? routeMinute
+    const driveMinutes = Math.max(0, arrivalMinute - routeMinute)
+    if (driveMinutes > 0) {
+      const realDurationMs = driveRealDurationMs(driveMinutes)
+      phases.push({
+        destinationClientId: client.clientId,
+        destinationName: client.name,
+        kind: 'drive',
+        legIndex: index,
+        realEndMs: realMs + realDurationMs,
+        realStartMs: realMs,
+        routeEndMinute: arrivalMinute,
+        routeStartMinute: routeMinute,
+      })
+      realMs += realDurationMs
+      routeMinute = arrivalMinute
+    }
+
+    const serviceMinutes = Math.max(0, client.serviceMinutes)
+    if (serviceMinutes > 0) {
+      const realDurationMs = serviceRealDurationMs(serviceMinutes)
+      phases.push({
+        clientId: client.clientId,
+        clientName: client.name,
+        kind: 'service',
+        legIndex: index,
+        realEndMs: realMs + realDurationMs,
+        realStartMs: realMs,
+        routeEndMinute: routeMinute + serviceMinutes,
+        routeStartMinute: routeMinute,
+        serviceMinutes,
+      })
+      realMs += realDurationMs
+      routeMinute += serviceMinutes
+    }
+  })
+
+  const finishMinute = parseRouteClockMinute(truck.route.optimized.finish, routeMinute) ?? routeMinute
+  const returnDriveMinutes = Math.max(0, finishMinute - routeMinute)
+  if (returnDriveMinutes > 0) {
+    const realDurationMs = driveRealDurationMs(returnDriveMinutes)
+    phases.push({
+      destinationClientId: '',
+      destinationName: 'base',
+      kind: 'drive',
+      legIndex: truck.clients.length,
+      realEndMs: realMs + realDurationMs,
+      realStartMs: realMs,
+      routeEndMinute: finishMinute,
+      routeStartMinute: routeMinute,
+    })
+    realMs += realDurationMs
+  }
+
+  return {
+    finishMinute,
+    phases,
+    startMinute: ROUTE_START_MINUTE,
+    totalRealMs: realMs,
+  }
+}
+
+function getRouteSimulationSnapshot(
+  timeline: RouteSimulationTimeline,
+  elapsedMs: number,
+): RouteSimulationSnapshot {
+  if (timeline.phases.length === 0 || elapsedMs >= timeline.totalRealMs) {
+    return {
+      clockLabel: formatRouteClockMinute(timeline.finishMinute),
+      complete: true,
+      detailLabel: 'Ruta finalizada',
+      highlightedClientId: '',
+      isStopped: false,
+      legIndex: Math.max(0, timeline.phases[timeline.phases.length - 1]?.legIndex ?? 0),
+      legProgress: 1,
+      statusLabel: 'Llegada a base',
+    }
+  }
+
+  const phase = timeline.phases.find((item) => elapsedMs < item.realEndMs) ?? timeline.phases[0]
+  const phaseDurationMs = Math.max(1, phase.realEndMs - phase.realStartMs)
+  const phaseProgress = clampValue((elapsedMs - phase.realStartMs) / phaseDurationMs, 0, 1)
+  const routeMinute = interpolateValue(phase.routeStartMinute, phase.routeEndMinute, phaseProgress)
+
+  if (phase.kind === 'service') {
+    return {
+      clockLabel: formatRouteClockMinute(routeMinute),
+      complete: false,
+      detailLabel: `${formatMinutes(phase.serviceMinutes)} de descarga`,
+      highlightedClientId: phase.clientId,
+      isStopped: true,
+      legIndex: phase.legIndex,
+      legProgress: 1,
+      statusLabel: `Descargando en ${phase.clientName}`,
+    }
+  }
+
+  return {
+    clockLabel: formatRouteClockMinute(routeMinute),
+    complete: false,
+    detailLabel: phase.destinationClientId ? 'En recorrido' : 'Regreso a fábrica',
+    highlightedClientId: phase.destinationClientId,
+    isStopped: false,
+    legIndex: phase.legIndex,
+    legProgress: phaseProgress,
+    statusLabel: phase.destinationClientId ? `Hacia ${phase.destinationName}` : 'Volviendo a base',
+  }
+}
+
+function getSimulationMapPoint(
+  simulation: RouteSimulationSnapshot,
+  routePoints: readonly PolylinePoint[],
+  routeLegs: readonly (readonly PolylinePoint[])[] | null,
+) {
+  const origin = routePoints[simulation.legIndex]
+  const destination = routePoints[simulation.legIndex + 1] ?? origin
+  if (!origin || !destination) {
+    return null
+  }
+
+  const roadLeg = routeLegs?.[simulation.legIndex]
+  const leg = roadLeg && roadLeg.length > 1 ? roadLeg : [origin, destination]
+  return pointAtPolylineProgress(leg, simulation.legProgress)
+}
+
+function pointAtPolylineProgress(polyline: readonly PolylinePoint[], progress: number) {
+  if (polyline.length === 0) {
+    return null
+  }
+  if (polyline.length === 1) {
+    return polyline[0]
+  }
+
+  const targetDistance =
+    polylineDistance(polyline) * clampValue(progress, 0, 1)
+  let coveredDistance = 0
+
+  for (let index = 0; index < polyline.length - 1; index += 1) {
+    const start = polyline[index]
+    const end = polyline[index + 1]
+    const segmentDistance = distanceBetweenPoints(start, end)
+    if (coveredDistance + segmentDistance >= targetDistance) {
+      const segmentProgress =
+        segmentDistance > 0 ? (targetDistance - coveredDistance) / segmentDistance : 0
+      return {
+        lat: interpolateValue(start.lat, end.lat, segmentProgress),
+        lng: interpolateValue(start.lng, end.lng, segmentProgress),
+      }
+    }
+    coveredDistance += segmentDistance
+  }
+
+  return polyline[polyline.length - 1]
+}
+
+function polylineDistance(polyline: readonly PolylinePoint[]) {
+  let total = 0
+  for (let index = 0; index < polyline.length - 1; index += 1) {
+    total += distanceBetweenPoints(polyline[index], polyline[index + 1])
+  }
+  return total
+}
+
+function distanceBetweenPoints(a: PolylinePoint, b: PolylinePoint) {
+  const latScale = 111_320
+  const lngScale = Math.cos(degreesToRadians((a.lat + b.lat) / 2)) * 111_320
+  return Math.hypot((b.lat - a.lat) * latScale, (b.lng - a.lng) * lngScale)
+}
+
+function degreesToRadians(value: number) {
+  return (value * Math.PI) / 180
+}
+
+function parseRouteClockMinute(value: string, minimumMinute: number) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value)
+  if (!match) {
+    return null
+  }
+
+  const clockMinute = Number(match[1]) * 60 + Number(match[2])
+  const minimumDayStart = Math.floor(minimumMinute / ROUTE_DAY_MINUTES) * ROUTE_DAY_MINUTES
+  const sameDayMinute = minimumDayStart + clockMinute
+
+  if (sameDayMinute >= minimumMinute) {
+    return sameDayMinute
+  }
+
+  const previousClockMinute = minimumMinute % ROUTE_DAY_MINUTES
+  const isMidnightRollover =
+    previousClockMinute >= ROUTE_MIDNIGHT_ROLLOVER_AFTER_MINUTE &&
+    clockMinute <= ROUTE_MIDNIGHT_ROLLOVER_BEFORE_MINUTE
+
+  return isMidnightRollover ? sameDayMinute + ROUTE_DAY_MINUTES : minimumMinute
+}
+
+function formatRouteClockMinute(totalMinutes: number) {
+  const roundedMinutes = Math.round(totalMinutes)
+  const hour = Math.floor(roundedMinutes / 60) % 24
+  const minute = roundedMinutes % 60
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+function driveRealDurationMs(routeMinutes: number) {
+  return clampValue(
+    (routeMinutes / ROUTE_DRIVE_MINUTES_PER_SECOND) * 1_000,
+    ROUTE_MIN_DRIVE_MS,
+    ROUTE_MAX_DRIVE_MS,
+  )
+}
+
+function serviceRealDurationMs(serviceMinutes: number) {
+  return clampValue(
+    Math.max(1, serviceMinutes) * ROUTE_STOP_MS_PER_SERVICE_MINUTE,
+    ROUTE_MIN_STOP_MS,
+    ROUTE_MAX_STOP_MS,
+  )
+}
+
+function interpolateValue(start: number, end: number, progress: number) {
+  return start + (end - start) * progress
+}
+
+function clampValue(value: number, minimum: number, maximum: number) {
+  return Math.min(maximum, Math.max(minimum, value))
 }
 
 function getEffectiveSelectedTruckId(plan: DistributionPlan | null, selectedTruckId: string) {

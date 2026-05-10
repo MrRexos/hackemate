@@ -258,6 +258,9 @@ def build_material_lookup(zm040: pd.DataFrame) -> tuple[dict[tuple[str, str], An
     zm040["vol_m3_raw"] = pd.to_numeric(zm040["Volumen"], errors="coerce").fillna(0) / 1000
     zm040["peso_kg_raw"] = pd.to_numeric(zm040["Peso bruto"], errors="coerce").fillna(0)
     zm040["contador_num"] = pd.to_numeric(zm040["Contador"], errors="coerce")
+    zm040["length_cm_raw"] = dimension_column_cm(zm040, "Longitud", "Unidad dimensión")
+    zm040["width_cm_raw"] = dimension_column_cm(zm040, "Ancho", "Unidad dimensión.1")
+    zm040["height_cm_raw"] = dimension_column_cm(zm040, "Altura", "Unidad dimensión.2")
 
     by_material_unit = {
         (row.mat_norm, row.uma_norm): row for row in zm040.itertuples(index=False)
@@ -266,6 +269,60 @@ def build_material_lookup(zm040: pd.DataFrame) -> tuple[dict[tuple[str, str], An
     for row in zm040[zm040["uma_norm"].eq("PAL")].itertuples(index=False):
         pallet_by_material.setdefault(row.mat_norm, row)
     return by_material_unit, pallet_by_material
+
+
+def dimension_unit_factor(unit: Any) -> float:
+    unit_key = norm_text(unit)
+    if unit_key == "MM":
+        return 0.1
+    if unit_key == "DM":
+        return 10.0
+    if unit_key == "M":
+        return 100.0
+    return 1.0
+
+
+def dimension_column_cm(dataframe: pd.DataFrame, value_col: str, unit_col: str) -> pd.Series:
+    values = pd.to_numeric(dataframe[value_col], errors="coerce").fillna(0)
+    factors = dataframe[unit_col].map(dimension_unit_factor) if unit_col in dataframe.columns else 1.0
+    return values * factors
+
+
+def has_dimensions(row: Any) -> bool:
+    return bool(row and row.length_cm_raw > 0 and row.width_cm_raw > 0 and row.height_cm_raw > 0)
+
+
+def dimensions_payload(row: Any, source: str) -> dict[str, Any]:
+    return {
+        "lengthCm": float(row.length_cm_raw),
+        "widthCm": float(row.width_cm_raw),
+        "heightCm": float(row.height_cm_raw),
+        "dimensionSource": source,
+    }
+
+
+def material_dimensions(
+    material: Any,
+    unit: Any,
+    by_material_unit: dict[tuple[str, str], Any],
+    pallet_by_material: dict[str, Any],
+) -> dict[str, Any]:
+    material_key = norm_text(material)
+    unit_key = norm_text(unit)
+    direct = by_material_unit.get((material_key, unit_key))
+    pallet = pallet_by_material.get(material_key)
+
+    if has_dimensions(direct):
+        return dimensions_payload(direct, "ZM040 dimensiones directas")
+    if has_dimensions(pallet):
+        return dimensions_payload(pallet, "PAL dimensiones referencia")
+
+    return {
+        "lengthCm": 0.0,
+        "widthCm": 0.0,
+        "heightCm": 0.0,
+        "dimensionSource": "sin dimensiones",
+    }
 
 
 def material_metrics(
@@ -829,6 +886,12 @@ def build_payload() -> dict[str, Any]:
             by_material_unit,
             pallet_by_material,
         )
+        dimensions = material_dimensions(
+            row[material_col],
+            row[unit_col],
+            by_material_unit,
+            pallet_by_material,
+        )
         type_name = product_type(row[description_col], row[unit_col])
         master_rows.append(
             {
@@ -852,8 +915,12 @@ def build_payload() -> dict[str, Any]:
                 "weightKg": round_float(metrics["weightKg"], 3),
                 "volumeM3": round_float(metrics["volumeM3"], 5),
                 "pallets": round_float(metrics["pallets"], 5),
+                "lengthCm": round_float(dimensions["lengthCm"], 2),
+                "widthCm": round_float(dimensions["widthCm"], 2),
+                "heightCm": round_float(dimensions["heightCm"], 2),
                 "returnable": type_name == "retornable",
                 "metricSource": metrics["source"],
+                "dimensionSource": dimensions["dimensionSource"],
             }
         )
 

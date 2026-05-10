@@ -19,8 +19,12 @@ export type MasterLoadRow = {
   weightKg: number
   volumeM3: number
   pallets: number
+  lengthCm?: number
+  widthCm?: number
+  heightCm?: number
   returnable: boolean
   metricSource: string
+  dimensionSource?: string
 }
 
 export type LoadShape = 'box' | 'cylinder' | 'crate'
@@ -52,7 +56,11 @@ export type LoadPiece = {
   weightKg: number
   volumeM3: number
   palletShare: number
+  lengthCm?: number
+  widthCm?: number
+  heightCm?: number
   color: string
+  dimensionSource?: string
   shape: LoadShape
 }
 
@@ -289,7 +297,11 @@ function groupRowsByClient(rows: readonly MasterLoadRow[]) {
 }
 
 function buildClientPieces(client: ClientLoadInput, rows: readonly MasterLoadRow[]): PieceDraft[] {
-  const groups = new Map<string, PieceDraft & { rowCount: number }>()
+  const groups = new Map<string, PieceDraft & {
+    dimensionSources: readonly string[]
+    dimensionWeight: number
+    rowCount: number
+  }>()
 
   for (const row of rows) {
     const rule = materialRuleFor(row.productType)
@@ -307,7 +319,13 @@ function buildClientPieces(client: ClientLoadInput, rows: readonly MasterLoadRow
       weightKg: 0,
       volumeM3: 0,
       palletShare: 0,
+      lengthCm: 0,
+      widthCm: 0,
+      heightCm: 0,
       color: rule.color,
+      dimensionSource: '',
+      dimensionSources: [],
+      dimensionWeight: 0,
       shape: rule.shape,
       rowCount: 0,
     }
@@ -316,6 +334,14 @@ function buildClientPieces(client: ClientLoadInput, rows: readonly MasterLoadRow
     current.weightKg += row.weightKg
     current.volumeM3 += row.volumeM3
     current.palletShare += estimateLinePalletShare(row)
+    if (hasDirectDimensions(row)) {
+      const dimensionWeight = Math.max(row.quantity, 1)
+      current.lengthCm = (current.lengthCm ?? 0) + Number(row.lengthCm) * dimensionWeight
+      current.widthCm = (current.widthCm ?? 0) + Number(row.widthCm) * dimensionWeight
+      current.heightCm = (current.heightCm ?? 0) + Number(row.heightCm) * dimensionWeight
+      current.dimensionWeight += dimensionWeight
+    }
+    current.dimensionSources = addUnique(current.dimensionSources, row.dimensionSource ?? 'sin dimensiones')
     current.materialCodes = addUnique(current.materialCodes, row.material)
     current.products = addUnique(current.products, row.product)
     current.rowCount += 1
@@ -323,8 +349,12 @@ function buildClientPieces(client: ClientLoadInput, rows: readonly MasterLoadRow
   }
 
   return [...groups.values()]
-    .map(({ rowCount, ...piece }) => ({
+    .map(({ dimensionSources, dimensionWeight, rowCount, ...piece }) => ({
       ...piece,
+      lengthCm: dimensionWeight > 0 ? roundTwo((piece.lengthCm ?? 0) / dimensionWeight) : 0,
+      widthCm: dimensionWeight > 0 ? roundTwo((piece.widthCm ?? 0) / dimensionWeight) : 0,
+      heightCm: dimensionWeight > 0 ? roundTwo((piece.heightCm ?? 0) / dimensionWeight) : 0,
+      dimensionSource: compactSources(dimensionSources),
       materialCodes: piece.materialCodes.slice(0, 5),
       products: piece.products.slice(0, 4),
       palletShare: roundFour(Math.max(piece.palletShare, client.pallets * 0.02, MIN_PACKING_SHARE * rowCount)),
@@ -337,6 +367,28 @@ function buildClientPieces(client: ClientLoadInput, rows: readonly MasterLoadRow
       const ruleB = materialRuleFor(b.productType)
       return ruleA.stackRank - ruleB.stackRank || b.weightKg - a.weightKg
     })
+}
+
+function hasDirectDimensions(row: MasterLoadRow) {
+  return Boolean(
+    row.dimensionSource?.includes('directas') &&
+      row.lengthCm &&
+      row.widthCm &&
+      row.heightCm,
+  )
+}
+
+function compactSources(values: readonly string[]) {
+  const counts = new Map<string, number>()
+  for (const value of values) {
+    if (!value) {
+      continue
+    }
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .map(([source, count]) => (count > 1 ? `${source}: ${count}` : source))
+    .join(', ')
 }
 
 function estimateLinePalletShare(row: MasterLoadRow) {

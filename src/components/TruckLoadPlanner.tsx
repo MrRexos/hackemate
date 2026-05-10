@@ -30,7 +30,6 @@ type UnitSize = {
 type BoxDividerLayout = {
   columns: number
   rows: number
-  layers: number
 }
 
 const numberFormatter = new Intl.NumberFormat('es-ES')
@@ -40,6 +39,9 @@ const TOP_DOWN_LANE_PITCH = 0.94
 const TOP_DOWN_LENGTH_PADDING = 1.32
 const TOP_DOWN_WIDTH_PADDING = 0.72
 const TOP_DOWN_CANVAS_HEIGHT_PX = 220
+const PALLET_CELL_MAX_WIDTH = 0.255
+const PALLET_CELL_MAX_DEPTH = 0.225
+const BOX_VERTICAL_RATIO_THRESHOLD = 1.35
 
 export function TruckLoadPlanner({
   detailMode = 'clients',
@@ -836,16 +838,13 @@ function boxDividerLayoutFor(unit: VisualUnit, size: UnitSize): BoxDividerLayout
     return null
   }
 
-  const layers = clampInteger(Math.ceil(itemCount / 6), 1, 4)
-  const itemsPerLayer = Math.ceil(itemCount / layers)
   const widthDepthRatio = clamp(size.width / size.depth, 0.7, 1.8)
-  const columns = clampInteger(Math.ceil(Math.sqrt(itemsPerLayer * widthDepthRatio)), 1, 4)
-  const rows = clampInteger(Math.ceil(itemsPerLayer / columns), 1, 3)
+  const columns = clampInteger(Math.ceil(Math.sqrt(itemCount * widthDepthRatio)), 1, 6)
+  const rows = clampInteger(Math.ceil(itemCount / columns), 1, 5)
 
   return {
     columns,
     rows,
-    layers,
   }
 }
 
@@ -858,14 +857,6 @@ function createBoxDividerLines(size: UnitSize, layout: BoxDividerLayout, dimmed:
 
   const addSegment = (from: [number, number, number], to: [number, number, number]) => {
     points.push(...from, ...to)
-  }
-
-  for (let layer = 1; layer < layout.layers; layer += 1) {
-    const y = -halfHeight + (size.height * layer) / layout.layers
-    addSegment([-halfWidth - offset, y, -halfDepth - offset], [halfWidth + offset, y, -halfDepth - offset])
-    addSegment([halfWidth + offset, y, -halfDepth - offset], [halfWidth + offset, y, halfDepth + offset])
-    addSegment([halfWidth + offset, y, halfDepth + offset], [-halfWidth - offset, y, halfDepth + offset])
-    addSegment([-halfWidth - offset, y, halfDepth + offset], [-halfWidth - offset, y, -halfDepth - offset])
   }
 
   for (let column = 1; column < layout.columns; column += 1) {
@@ -1059,7 +1050,8 @@ function unitSize(unit: VisualUnit) {
   const scale = Math.sqrt(share / 0.1)
 
   if (unit.shape === 'cylinder') {
-    const radius = clamp(scale * (unit.productType === 'barril' ? 0.105 : 0.075), 0.055, 0.145)
+    const maxRadius = Math.min(PALLET_CELL_MAX_WIDTH, PALLET_CELL_MAX_DEPTH) / 2
+    const radius = clamp(scale * (unit.productType === 'barril' ? 0.105 : 0.075), 0.055, maxRadius)
     return {
       width: radius * 2,
       depth: radius * 2,
@@ -1067,10 +1059,50 @@ function unitSize(unit: VisualUnit) {
     }
   }
 
+  const profile = boxDimensionProfile(unit)
+  const ratioScale = Math.sqrt(profile?.widthDepthRatio ?? 1)
+  const width = clamp((0.18 + scale * 0.13) * ratioScale, 0.16, PALLET_CELL_MAX_WIDTH)
+  const depth = clamp((0.14 + scale * 0.11) / ratioScale, 0.13, PALLET_CELL_MAX_DEPTH)
+  const naturalHeight = clamp(
+    0.1 + share * (unit.shape === 'crate' ? 0.58 : 0.48),
+    0.11,
+    unit.shape === 'crate' ? 0.24 : 0.22,
+  )
+  const heightToBaseRatio = profile?.heightToBaseRatio ?? 1
+  const isVerticalProduct = heightToBaseRatio > BOX_VERTICAL_RATIO_THRESHOLD
+  const height = isVerticalProduct
+    ? clamp(
+        Math.max(naturalHeight, Math.max(width, depth) * clamp(heightToBaseRatio, BOX_VERTICAL_RATIO_THRESHOLD, 1.7)),
+        0.16,
+        unit.shape === 'crate' ? 0.36 : 0.38,
+      )
+    : Math.min(naturalHeight, Math.min(width, depth) * 0.82)
+
   return {
-    width: clamp(0.18 + scale * 0.12, 0.18, 0.3),
-    depth: clamp(0.14 + scale * 0.1, 0.14, 0.26),
-    height: clamp(0.14 + share * 1.4, 0.14, unit.shape === 'crate' ? 0.34 : 0.42),
+    width,
+    depth,
+    height,
+  }
+}
+
+function boxDimensionProfile(unit: VisualUnit) {
+  if (
+    !unit.dimensionSource?.includes('directas') ||
+    !unit.lengthCm ||
+    !unit.widthCm ||
+    !unit.heightCm
+  ) {
+    return null
+  }
+
+  const baseMax = Math.max(unit.lengthCm, unit.widthCm)
+  if (baseMax <= 0) {
+    return null
+  }
+
+  return {
+    heightToBaseRatio: unit.heightCm / baseMax,
+    widthDepthRatio: clamp(unit.lengthCm / Math.max(unit.widthCm, 0.1), 0.62, 1.9),
   }
 }
 
@@ -1117,10 +1149,9 @@ function formatPallets(value: number) {
 }
 
 function formatPieceProducts(piece: LoadPiece) {
-  const label = piece.products.length > 0
+  return piece.products.length > 0
     ? piece.products.join(' + ')
     : materialRuleFor(piece.productType).label
-  return label.length > 58 ? `${label.slice(0, 55)}...` : label
 }
 
 function formatPieceMaterials(piece: LoadPiece) {
