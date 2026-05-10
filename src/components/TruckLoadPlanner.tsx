@@ -59,6 +59,8 @@ const TOP_DOWN_LANE_PITCH = 0.94
 const TOP_DOWN_LENGTH_PADDING = 1.32
 const TOP_DOWN_WIDTH_PADDING = 0.72
 const TOP_DOWN_CANVAS_HEIGHT_PX = 220
+const TOP_DOWN_TRUCK_NOSE_FOOTPRINT_PX = 143
+const TOP_DOWN_VAN_NOSE_FOOTPRINT_PX = 183
 const PALLET_LOAD_WIDTH = 1.12
 const PALLET_LOAD_DEPTH = 0.72
 const PALLET_LOAD_AREA_M2 = 1.2 * 0.8
@@ -247,9 +249,13 @@ function TruckTopDownScene({
       TOP_DOWN_CANVAS_HEIGHT_PX /
       2,
   )
+  const topDownNoseWidth = isVanPlan
+    ? TOP_DOWN_VAN_NOSE_FOOTPRINT_PX
+    : TOP_DOWN_TRUCK_NOSE_FOOTPRINT_PX
   const topDownStyle = {
     '--route-truck-canvas-width': `${topDownCanvasWidth}px`,
     '--route-truck-center-offset': `${topDownCenterOffset}px`,
+    '--route-truck-stage-width': `${topDownCanvasWidth + topDownNoseWidth}px`,
   } as CSSProperties
 
   useEffect(() => {
@@ -357,8 +363,7 @@ function TruckTopDownScene({
         viewHeight = viewWidth / aspect
       }
 
-      const isStackedLayout = window.matchMedia('(max-width: 900px)').matches
-      const cameraLeft = isStackedLayout ? -viewWidth / 2 : -truckLength / 2 - 0.02
+      const cameraLeft = -truckLength / 2 - 0.02
       camera.left = cameraLeft
       camera.right = cameraLeft + viewWidth
       camera.top = viewHeight / 2

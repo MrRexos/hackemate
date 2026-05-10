@@ -716,7 +716,13 @@ a {
   display: flex;
   gap: 0;
   justify-content: center;
-  transform: translateX(var(--route-truck-center-offset, 0));
+  transform: translateX(
+    clamp(
+      0px,
+      var(--route-truck-center-offset, 0px),
+      max(0px, calc((100% - var(--route-truck-stage-width, 0px)) / 2))
+    )
+  );
 }
 
 .route-truck-nose-image {
@@ -736,8 +742,9 @@ a {
 
 .route-truck-topdown-canvas {
   background: #fdf4ec;
-  flex: 0 0 var(--route-truck-canvas-width, 825px);
+  flex: 0 1 var(--route-truck-canvas-width, 825px);
   height: 220px;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   position: relative;
@@ -928,7 +935,10 @@ a {
 }
 
 .route-pallet-visual-card {
+  justify-self: center;
+  max-width: 378px;
   padding: 0;
+  width: 100%;
 }
 
 .route-pallet-visual-scene {
@@ -1105,10 +1115,14 @@ a {
     min-width: 0;
   }
 
-  .route-comparison-row,
-  .route-truck-topdown-stage {
+  .route-comparison-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .route-truck-topdown-stage {
+    align-items: center;
+    flex-direction: row;
     transform: none;
   }
 
@@ -1118,19 +1132,19 @@ a {
 
   .route-truck-nose-image {
     height: 188px;
-    margin: 0 auto;
+    margin: 0 -10px 0 0;
     width: 113px;
   }
 
   .route-truck-nose-image-van {
     height: 207px;
-    margin: 0 auto;
+    margin: 0 6px 0 0;
     width: 126px;
   }
 
   .route-truck-topdown-canvas {
     flex-basis: auto;
-    width: 100%;
+    width: var(--route-truck-canvas-width, 825px);
   }
 
   .route-pallet-detail-grid,
